@@ -1,0 +1,51 @@
+{
+  "collections": [
+    {
+      "name": "users",
+      "fields": {
+        "name": "string",
+        "email": "string",
+        "role": "string",
+        "created_at": "timestamp"
+      }
+    },
+    {
+      "name": "donations",
+      "fields": {
+        "donor_id": "string",
+        "volunteer_id": "string",
+        "food_type": "string",
+        "quantity": "string",
+        "meals": "number",
+        "pickup_location": "string",
+        "pickup_latitude": "number",
+        "pickup_longitude": "number",
+        "pickup_time": "string",
+        "status": "string",
+        "qr_token": "string",
+        "created_at": "timestamp",
+        "scanned_at": "timestamp"
+      }
+    },
+    {
+      "name": "locations",
+      "fields": {
+        "user_id": "string",
+        "latitude": "number",
+        "longitude": "number",
+        "timestamp": "timestamp",
+        "sharing_enabled": "boolean"
+      }
+    },
+    {
+      "name": "notifications",
+      "fields": {
+        "donation_id": "string",
+        "message": "string",
+        "type": "string",
+        "is_read": "boolean",
+        "created_at": "timestamp"
+      }
+    }
+  ]
+}

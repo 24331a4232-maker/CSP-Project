@@ -1,0 +1,6 @@
+{
+  "name": "The Last Plate Project",
+  "description": "FoodBridge — Every Meal Deserves a Purpose. Reducing food waste and connecting surplus food with people in need.",
+  "requestFramePermissions": ["geolocation", "camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
