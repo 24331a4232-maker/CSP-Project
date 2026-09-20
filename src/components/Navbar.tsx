@@ -12,7 +12,15 @@ const Navbar = () => {
   const { sharing, setSharing } = useLocation();
 
   const handleLogout = async () => {
-    await signOut(auth);
+    try {
+      localStorage.removeItem('last_plate_auth_token');
+      localStorage.removeItem('last_plate_auth_user');
+      localStorage.removeItem('foodbridge_user_role');
+      sessionStorage.clear();
+      await signOut(auth);
+    } catch (e) {
+      console.warn('Logout error:', e);
+    }
     navigate('/login');
   };
 

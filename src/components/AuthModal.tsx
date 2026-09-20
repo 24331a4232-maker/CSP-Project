@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, User, Lock, Mail, Phone, Building, ShieldCheck, CheckCircle2, HeartHandshake, AlertCircle, Loader2 } from 'lucide-react';
 import { UserRoleType } from '../types';
+import { authenticateWithUsernameAndPassword } from '../lib/authService';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -110,6 +111,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setIsLoading(true);
 
     try {
+      // Check email uniqueness first
+      try {
+        const checkRes = await fetch(`/api/auth/check-email?email=${encodeURIComponent(email.trim().toLowerCase())}`);
+        if (checkRes.ok) {
+          const checkData = await checkRes.json();
+          if (checkData.exists) {
+            setErrorMessage('This email is already registered with another account. The same email cannot register a second account with another role.');
+            setIsLoading(false);
+            return;
+          }
+        }
+      } catch (checkErr) {
+        console.warn('Check email error:', checkErr);
+      }
+
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -157,13 +173,30 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     setIsLoading(true);
 
+    const targetRoleUpper: 'DONOR' | 'VOLUNTEER' | 'ADMIN' =
+      selectedRole === 'hotel' || selectedRole === 'ngo' ? 'DONOR' :
+      selectedRole === 'volunteer' ? 'VOLUNTEER' : 'ADMIN';
+
     try {
+      // Synchronize Firebase Auth client state with username and role check
+      try {
+        await authenticateWithUsernameAndPassword(loginIdentifier.trim(), loginPassword, targetRoleUpper);
+      } catch (clientAuthErr: any) {
+        if (clientAuthErr?.message && clientAuthErr.message.includes('Access denied')) {
+          setErrorMessage(clientAuthErr.message);
+          setIsLoading(false);
+          return;
+        }
+        console.warn('Firebase client auth step noted:', clientAuthErr);
+      }
+
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           identifier: loginIdentifier.trim(),
-          password: loginPassword
+          password: loginPassword,
+          targetRole: targetRoleUpper
         })
       });
 
@@ -179,6 +212,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         try {
           localStorage.setItem('last_plate_auth_token', data.token);
           localStorage.setItem('last_plate_auth_user', JSON.stringify(data.user));
+          localStorage.setItem('foodbridge_user_role', targetRoleUpper);
         } catch {}
       }
 
@@ -400,6 +434,39 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           /* ===================== LOGIN FORM ===================== */
           <form onSubmit={handleLoginSubmit} className="space-y-4">
             
+            {/* Role Portal Picker */}
+            <div>
+              <label className="block text-xs font-bold text-gray-700 mb-1.5">Select Login Portal:</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { id: 'hotel', label: 'Donor Portal', icon: Building },
+                  { id: 'volunteer', label: 'Volunteer', icon: HeartHandshake },
+                  { id: 'admin', label: 'Admin', icon: ShieldCheck },
+                ].map((r) => {
+                  const Icon = r.icon;
+                  const isSelected = selectedRole === r.id;
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedRole(r.id as UserRoleType);
+                        setErrorMessage(null);
+                      }}
+                      className={`p-2 rounded-xl border text-[11px] font-bold flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-emerald-50 border-[#22C55E] text-emerald-800 shadow-2xs'
+                          : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                      }`}
+                    >
+                      <Icon className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>{r.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Identifier: Username or Email */}
             <div>
               <label className="block text-xs font-bold text-gray-700 mb-1">Username or Email *</label>

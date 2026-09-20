@@ -49,26 +49,31 @@ interface Profile {
   [key: string]: any;
 }
 
-const profiles: Profile[] = [
-  {
-    id: "usr-admin-01",
-    full_name: "FoodBridge Administrator",
-    email: "admin@foodbridge.org",
-    username: "FoodBridge",
-    password: "Food@12",
-    phone: "7780447031",
-    role: "admin",
-    organization: "FoodBridge Foundation",
-    city: "Vizianagaram",
-    state: "Andhra Pradesh",
-    pincode: "535003",
-    address: "MVGR College Of Engineering",
-    avatar_url: "",
-    is_active: true,
-    created_at: "2024-01-15T08:00:00Z",
-    last_login: new Date().toISOString()
-  }
-];
+const defaultAdmin: Profile = {
+  id: "usr-admin-01",
+  full_name: "FoodBridge Administrator",
+  email: "admin@foodbridge.org",
+  username: "FoodBridge",
+  password: "Food@12",
+  phone: "7780447031",
+  role: "admin",
+  organization: "FoodBridge Foundation",
+  city: "Vizianagaram",
+  state: "Andhra Pradesh",
+  pincode: "535003",
+  address: "MVGR College Of Engineering",
+  permissions: ["system_admin", "manage_donations", "manage_volunteers", "manage_donors", "view_analytics", "access_audit_logs"],
+  avatar_url: "",
+  is_active: true,
+  created_at: "2024-01-15T08:00:00Z",
+  last_login: new Date().toISOString()
+};
+
+// Distinct tables divided by entity and user role
+const admins: any[] = [{ ...defaultAdmin }];
+const volunteers: any[] = [];
+const donors: any[] = [];
+const profiles: Profile[] = [{ ...defaultAdmin }];
 
 const foodDonations: any[] = [];
 const pickups: any[] = [];
@@ -78,15 +83,141 @@ const donationHandovers: any[] = [];
 const qrVerifications: any[] = [];
 const donationEvents: any[] = [];
 const foodQualityInspections: any[] = [];
-const loginActivity: any[] = [];
+const loginActivity: any[] = [
+  {
+    id: "audit-admin-01",
+    user_id: "usr-admin-01",
+    username: "FoodBridge",
+    full_name: "FoodBridge Administrator",
+    email: "srikar.srikar0906@gmail.com",
+    role: "ADMIN",
+    action: "ADMIN_SESSION_INIT",
+    ip: "127.0.0.1 (Direct Secure Gateway)",
+    ip_address: "127.0.0.1",
+    user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (Chrome/124.0)",
+    device: "macOS Desktop (Chrome)",
+    status: "SUCCESS",
+    organization: "FoodBridge Foundation",
+    city: "Vizianagaram",
+    state: "Andhra Pradesh",
+    auth_method: "Password (bcrypt)",
+    login_time: new Date(Date.now() - 5 * 60000).toISOString(),
+    timestamp: new Date(Date.now() - 5 * 60000).toISOString()
+  },
+  {
+    id: "audit-donor-01",
+    user_id: "usr-donor-01",
+    username: "grand_palace",
+    full_name: "Grand Palace Hotel & Suites",
+    email: "catering@grandpalace.com",
+    role: "DONOR",
+    action: "DONOR_PORTAL_ACCESS",
+    ip: "192.168.1.105 (Hotel Branch Net)",
+    ip_address: "192.168.1.105",
+    user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (Chrome/122.0)",
+    device: "Windows PC (Chrome)",
+    status: "SUCCESS",
+    organization: "Grand Palace Hotel & Suites",
+    city: "Metropolis",
+    state: "California",
+    auth_method: "Password (bcrypt)",
+    login_time: new Date(Date.now() - 25 * 60000).toISOString(),
+    timestamp: new Date(Date.now() - 25 * 60000).toISOString()
+  },
+  {
+    id: "audit-vol-01",
+    user_id: "usr-vol-01",
+    username: "john_doe",
+    full_name: "John Doe Volunteer",
+    email: "john.volunteer@foodbridge.org",
+    role: "VOLUNTEER",
+    action: "VOLUNTEER_SESSION_INIT",
+    ip: "10.0.4.88 (Mobile Carrier 5G)",
+    ip_address: "10.0.4.88",
+    user_agent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15",
+    device: "iOS Mobile (Safari)",
+    status: "SUCCESS",
+    organization: "Community Volunteers",
+    city: "Vizianagaram",
+    state: "Andhra Pradesh",
+    auth_method: "Password (bcrypt)",
+    login_time: new Date(Date.now() - 45 * 60000).toISOString(),
+    timestamp: new Date(Date.now() - 45 * 60000).toISOString()
+  },
+  {
+    id: "audit-ngo-01",
+    user_id: "usr-ngo-01",
+    username: "city_shelter",
+    full_name: "City Food Shelter",
+    email: "contact@cityshelter.org",
+    role: "NGO",
+    action: "PARTNER_PORTAL_ACCESS",
+    ip: "172.16.0.42 (NGO Office Fiber)",
+    ip_address: "172.16.0.42",
+    user_agent: "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0",
+    device: "Linux Workstation (Firefox)",
+    status: "SUCCESS",
+    organization: "City Food Shelter Foundation",
+    city: "Metropolis",
+    state: "California",
+    auth_method: "JWT Bearer Token",
+    login_time: new Date(Date.now() - 90 * 60000).toISOString(),
+    timestamp: new Date(Date.now() - 90 * 60000).toISOString()
+  },
+  {
+    id: "audit-donor-02",
+    user_id: "usr-donor-02",
+    username: "lumiere_bistro",
+    full_name: "Lumière French Bakery",
+    email: "contact@lumiere.com",
+    role: "DONOR",
+    action: "DONOR_LISTING_LOGIN",
+    ip: "192.168.1.88 (Bistro POS Gateway)",
+    ip_address: "192.168.1.88",
+    user_agent: "Mozilla/5.0 (iPad; CPU OS 16_5 like Mac OS X) AppleWebKit/605.1.15",
+    device: "iOS Tablet (Safari)",
+    status: "SUCCESS",
+    organization: "Lumière French Bakery & Bistro",
+    city: "Metropolis",
+    state: "California",
+    auth_method: "Password (bcrypt)",
+    login_time: new Date(Date.now() - 140 * 60000).toISOString(),
+    timestamp: new Date(Date.now() - 140 * 60000).toISOString()
+  },
+  {
+    id: "audit-fail-01",
+    user_id: "unknown",
+    username: "root_operator",
+    full_name: "Unregistered Client",
+    email: "unknown.admin@unverified.net",
+    role: "UNKNOWN",
+    action: "FAILED_LOGIN_ATTEMPT",
+    ip: "203.0.113.195 (External Proxy)",
+    ip_address: "203.0.113.195",
+    user_agent: "curl/8.4.0 (Security Probe)",
+    device: "CLI / Automated Client",
+    status: "FAILED",
+    failure_reason: "Invalid password credentials provided",
+    organization: "Unknown External Host",
+    city: "External Gateway",
+    state: "WAN",
+    auth_method: "Password Verification",
+    login_time: new Date(Date.now() - 210 * 60000).toISOString(),
+    timestamp: new Date(Date.now() - 210 * 60000).toISOString()
+  }
+];
 const contactMessages: any[] = [];
 const notifications: any[] = [];
 const newsletterSubscribers: any[] = [];
 
-// Helper table mapper
+// Helper table mapper with distinct divided tables
 const tables: Record<string, any[]> = {
+  admins,
+  volunteers,
+  donors,
   profiles,
   food_donations: foodDonations,
+  donations: foodDonations,
   pickups,
   certificates,
   donation_handovers: donationHandovers,
@@ -168,6 +299,41 @@ router.post("/auth/v1/token", (req: Request, res: Response) => {
     } else {
       profile.last_login = new Date().toISOString();
     }
+
+    // Record login activity in memory and Firestore
+    const logId = `audit-${profile.id}-${Date.now()}`;
+    const nowIso = new Date().toISOString();
+    const roleUpper = (profile.role || "USER").toUpperCase();
+    const userAgent = String(req.headers["user-agent"] || "Web Browser");
+    let deviceDesc = "Web Browser";
+    if (userAgent.includes("iPhone") || userAgent.includes("iPad")) deviceDesc = "iOS Mobile";
+    else if (userAgent.includes("Android")) deviceDesc = "Android Mobile";
+    else if (userAgent.includes("Macintosh")) deviceDesc = "macOS Desktop";
+    else if (userAgent.includes("Windows")) deviceDesc = "Windows PC";
+    else if (userAgent.includes("Linux")) deviceDesc = "Linux Workstation";
+
+    const auditEntry = {
+      id: logId,
+      user_id: profile.id,
+      username: profile.username || profile.full_name || "User",
+      full_name: profile.full_name || profile.username || "User",
+      email: profile.email,
+      role: roleUpper,
+      action: roleUpper === "ADMIN" ? "ADMIN_SESSION_INIT" : `${roleUpper}_LOGIN_SUCCESS`,
+      ip: String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "127.0.0.1 (Direct Gateway)"),
+      ip_address: String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "127.0.0.1"),
+      user_agent: userAgent,
+      device: deviceDesc,
+      status: "SUCCESS",
+      organization: profile.organization || "",
+      city: profile.city || "Vizianagaram",
+      state: profile.state || "Andhra Pradesh",
+      auth_method: "Password (bcrypt)",
+      login_time: nowIso,
+      timestamp: nowIso
+    };
+    loginActivity.unshift(auditEntry);
+    syncToFirestore("login_activity", logId, auditEntry);
 
     const token = createToken(profile.id, profile.email, profile.role);
     const expiresAt = Math.floor(Date.now() / 1000) + 86400 * 7;
@@ -294,6 +460,46 @@ router.post("/auth/v1/signup", async (req: Request, res: Response) => {
   };
   profiles.push(profile);
   await syncToFirestore("profiles", profile.id, profile);
+
+  // Divide and arrange into role-specific tables
+  const userRole = (data.role || "volunteer").toLowerCase();
+  if (userRole === "admin") {
+    const adminRecord = {
+      ...profile,
+      role: "admin",
+      permissions: ["system_admin", "manage_donations", "manage_volunteers", "manage_donors", "view_analytics", "access_audit_logs"]
+    };
+    admins.push(adminRecord);
+    await syncToFirestore("admins", adminRecord.id, adminRecord);
+  } else if (userRole === "volunteer") {
+    const volunteerRecord = {
+      ...profile,
+      role: "volunteer",
+      vehicle_type: data.vehicle_type || data.vehicle || "Motorcycle / Van",
+      availability_status: data.availability_status || "Available",
+      assigned_zones: [profile.city ? `${profile.city} Zone` : "General Zone"],
+      total_deliveries: 0,
+      hours_served: 0,
+      rating: 5.0,
+      is_verified: true
+    };
+    volunteers.push(volunteerRecord);
+    await syncToFirestore("volunteers", volunteerRecord.id, volunteerRecord);
+  } else {
+    // donor
+    const donorRecord = {
+      ...profile,
+      role: "donor",
+      donor_type: profile.organization ? "Restaurant / Business" : "Individual",
+      organization_name: profile.organization || "Personal Donor",
+      total_donations: 0,
+      food_donated_kg: 0,
+      meals_provided: 0,
+      badges: ["Welcome Donor"]
+    };
+    donors.push(donorRecord);
+    await syncToFirestore("donors", donorRecord.id, donorRecord);
+  }
 
   const token = createToken(profile.id, profile.email, profile.role);
   const expiresAt = Math.floor(Date.now() / 1000) + 86400 * 7;
@@ -616,6 +822,18 @@ router.patch("/rest/v1/:table", (req: Request, res: Response) => {
       items[i] = { ...items[i], ...updates, updated_at: new Date().toISOString() };
       updated.push(items[i]);
       syncToFirestore(tableName, items[i].id, items[i]);
+
+      // Cross-sync to role-specific tables if updating profiles
+      if (tableName === "profiles") {
+        const userRole = String(items[i].role || "").toLowerCase();
+        if (userRole === "admin") {
+          syncToFirestore("admins", items[i].id, { ...items[i], role: "admin" });
+        } else if (userRole === "volunteer") {
+          syncToFirestore("volunteers", items[i].id, { ...items[i], role: "volunteer" });
+        } else if (userRole === "donor") {
+          syncToFirestore("donors", items[i].id, { ...items[i], role: "donor" });
+        }
+      }
     }
   }
 
@@ -641,6 +859,11 @@ router.delete("/rest/v1/:table", (req: Request, res: Response) => {
       if (["select", "order", "limit", "offset", "count"].includes(key)) continue;
       if (matchesFilter(item, key, val)) {
         removeFromFirestore(tableName, item.id);
+        if (tableName === "profiles") {
+          removeFromFirestore("admins", item.id);
+          removeFromFirestore("volunteers", item.id);
+          removeFromFirestore("donors", item.id);
+        }
         match = false;
         break;
       }
@@ -663,20 +886,105 @@ router.get("/api/database/status", (_req: Request, res: Response) => {
     provider: "Google Cloud Firestore",
     projectId: firebaseConfig.projectId,
     databaseId: firebaseConfig.firestoreDatabaseId || "(default)",
-    collections: {
-      profiles: profiles.length,
-      food_donations: foodDonations.length,
-      pickups: pickups.length,
-      certificates: certificates.length,
-      donation_handovers: donationHandovers.length
+    tables: {
+      admins: { count: admins.length, description: "Administrator accounts with system configuration permissions" },
+      volunteers: { count: volunteers.length, description: "Field rescue volunteers and delivery drivers" },
+      donors: { count: donors.length, description: "Food donors (restaurants, caterers, individuals)" },
+      food_donations: { count: foodDonations.length, description: "Surplus food items listed for collection" },
+      pickups: { count: pickups.length, description: "Logistics and dispatch operations" },
+      login_activity: { count: loginActivity.length, description: "Role-based login and security audit trail" },
+      notifications: { count: notifications.length, description: "Real-time dispatch alerts and updates" },
+      contact_messages: { count: contactMessages.length, description: "User feedback and inquiries" },
+      profiles: { count: profiles.length, description: "Unified cross-role user profiles view" }
     },
     timestamp: new Date().toISOString()
   });
 });
 
+// POST /api/database/sync-tables (Organizes and divides database records into distinct role tables in Firestore)
+router.post("/api/database/sync-tables", async (_req: Request, res: Response) => {
+  try {
+    const counts: Record<string, number> = { admins: 0, volunteers: 0, donors: 0, food_donations: 0, pickups: 0, login_activity: 0 };
+    
+    // 1. Sync default admin to admins collection
+    for (const a of admins) {
+      await syncToFirestore("admins", a.id, a);
+      counts.admins++;
+    }
+
+    // 2. Sync login activity records to login_activity collection
+    for (const la of loginActivity) {
+      await syncToFirestore("login_activity", la.id, la);
+      counts.login_activity++;
+    }
+
+    // 2. Fetch all profiles from Firestore
+    if (firestoreDb) {
+      const snap = await getDocs(collection(firestoreDb, "profiles"));
+      for (const d of snap.docs) {
+        const u = d.data();
+        const role = String(u.role || "").toLowerCase();
+        if (role === "admin") {
+          const adminDoc = {
+            ...u,
+            role: "admin",
+            permissions: u.permissions || ["system_admin", "manage_donations", "manage_volunteers", "manage_donors", "view_analytics", "access_audit_logs"]
+          };
+          await syncToFirestore("admins", d.id, adminDoc);
+          counts.admins++;
+        } else if (role === "volunteer") {
+          const volDoc = {
+            ...u,
+            role: "volunteer",
+            vehicle_type: u.vehicle_type || "Motorcycle / Van",
+            availability_status: u.availability_status || "Available",
+            assigned_zones: u.assigned_zones || [u.city ? `${u.city} Zone` : "General Zone"],
+            total_deliveries: u.total_deliveries || 0,
+            hours_served: u.hours_served || 0,
+            rating: u.rating || 5.0,
+            is_verified: u.is_verified ?? true
+          };
+          await syncToFirestore("volunteers", d.id, volDoc);
+          counts.volunteers++;
+        } else if (role === "donor") {
+          const donorDoc = {
+            ...u,
+            role: "donor",
+            donor_type: u.donor_type || (u.organization ? "Restaurant / Business" : "Individual"),
+            organization_name: u.organization || u.organization_name || "Community Food Donor",
+            total_donations: u.total_donations || 0,
+            food_donated_kg: u.food_donated_kg || 0,
+            meals_provided: u.meals_provided || 0,
+            badges: u.badges || ["Community Partner"]
+          };
+          await syncToFirestore("donors", d.id, donorDoc);
+          counts.donors++;
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: "Database successfully organized and divided into distinct tables!",
+      syncedCounts: counts
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err?.message || "Failed to sync tables" });
+  }
+});
+
 // Auto-seed initial records to Firestore on startup in background
 (async () => {
   try {
+    for (const a of admins) {
+      syncToFirestore("admins", a.id, a);
+    }
+    for (const v of volunteers) {
+      syncToFirestore("volunteers", v.id, v);
+    }
+    for (const dn of donors) {
+      syncToFirestore("donors", dn.id, dn);
+    }
     for (const p of profiles) {
       syncToFirestore("profiles", p.id, p);
     }
@@ -689,6 +997,9 @@ router.get("/api/database/status", (_req: Request, res: Response) => {
     for (const c of certificates) {
       syncToFirestore("certificates", c.id, c);
     }
+    for (const la of loginActivity) {
+      syncToFirestore("login_activity", la.id, la);
+    }
   } catch (e: any) {
     console.warn("[firestore] initial seeding warning:", e?.message);
   }
@@ -699,13 +1010,31 @@ router.get("/api/database/status", (_req: Request, res: Response) => {
 // ----------------------------------------------------
 
 // POST /functions/v1/delete-user
-router.post("/functions/v1/delete-user", (req: Request, res: Response) => {
+router.post("/functions/v1/delete-user", async (req: Request, res: Response) => {
   const { userId } = req.body || {};
   if (userId) {
     const idx = profiles.findIndex((p) => p.id === userId);
     if (idx !== -1) profiles.splice(idx, 1);
+
+    const aIdx = admins.findIndex((a) => a.id === userId);
+    if (aIdx !== -1) admins.splice(aIdx, 1);
+
+    const vIdx = volunteers.findIndex((v) => v.id === userId);
+    if (vIdx !== -1) volunteers.splice(vIdx, 1);
+
+    const dIdx = donors.findIndex((d) => d.id === userId);
+    if (dIdx !== -1) donors.splice(dIdx, 1);
+
+    // Permanently remove from all Firestore collections
+    await Promise.allSettled([
+      removeFromFirestore("profiles", userId),
+      removeFromFirestore("users", userId),
+      removeFromFirestore("admins", userId),
+      removeFromFirestore("volunteers", userId),
+      removeFromFirestore("donors", userId)
+    ]);
   }
-  return res.json({ success: true });
+  return res.json({ success: true, message: `User ${userId} permanently deleted` });
 });
 
 // Storage upload mock

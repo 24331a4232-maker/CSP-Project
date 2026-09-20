@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { UtensilsCrossed, Heart, Mail, Phone, MapPin, Send, Check, ShieldCheck, Github, Twitter, Linkedin, Instagram, Facebook } from 'lucide-react';
+import { UtensilsCrossed, Heart, Mail, Phone, MapPin, Send, Check, ShieldCheck, Globe, Share2, MessageCircle } from 'lucide-react';
 
 interface FooterProps {
   onNavClick: (tab: string) => void;
@@ -37,17 +37,14 @@ export const Footer: React.FC<FooterProps> = ({ onNavClick }) => {
             </p>
 
             <div className="flex items-center gap-3 text-gray-400 pt-1">
-              <a href="#" className="p-2 bg-gray-800 hover:bg-[#22C55E] hover:text-white rounded-lg transition-colors" aria-label="Twitter">
-                <Twitter className="w-4 h-4" />
+              <a href="#" className="p-2 bg-gray-800 hover:bg-[#22C55E] hover:text-white rounded-lg transition-colors" aria-label="Website">
+                <Globe className="w-4 h-4" />
               </a>
-              <a href="#" className="p-2 bg-gray-800 hover:bg-[#22C55E] hover:text-white rounded-lg transition-colors" aria-label="LinkedIn">
-                <Linkedin className="w-4 h-4" />
+              <a href="#" className="p-2 bg-gray-800 hover:bg-[#22C55E] hover:text-white rounded-lg transition-colors" aria-label="Share">
+                <Share2 className="w-4 h-4" />
               </a>
-              <a href="#" className="p-2 bg-gray-800 hover:bg-[#22C55E] hover:text-white rounded-lg transition-colors" aria-label="Instagram">
-                <Instagram className="w-4 h-4" />
-              </a>
-              <a href="#" className="p-2 bg-gray-800 hover:bg-[#22C55E] hover:text-white rounded-lg transition-colors" aria-label="Facebook">
-                <Facebook className="w-4 h-4" />
+              <a href="#" className="p-2 bg-gray-800 hover:bg-[#22C55E] hover:text-white rounded-lg transition-colors" aria-label="Contact">
+                <MessageCircle className="w-4 h-4" />
               </a>
             </div>
           </div>

@@ -61,7 +61,7 @@ const INITIAL_DONATIONS: any[] = [
   }
 ];
 
-let memoryDonations: any[] = [...INITIAL_DONATIONS];
+let memoryDonations: any[] = [];
 
 // GET /api/donations (Get list with optional status/search filters)
 router.get('/', async (req: Request, res: Response) => {
