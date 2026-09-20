@@ -138,7 +138,7 @@ router.post('/register', async (req: Request, res: Response) => {
       updated_at: nowIso
     };
 
-    await setDoc(doc(db, 'profiles', userId), newProfile);
+    await setDoc(doc(db, 'users', userId), newProfile, { merge: true });
 
     // Record initial registration audit activity
     const userAgent = String(req.headers['user-agent'] || 'Web Browser');
@@ -578,13 +578,13 @@ router.get('/me', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid token payload' });
     }
 
-    const userDoc = await getDoc(doc(db, 'profiles', decoded.userId));
+    const userDoc = await getDoc(doc(db, 'users', decoded.userId));
     if (userDoc.exists()) {
       const data = userDoc.data();
       return res.json({
         user: {
           id: data.id || userDoc.id,
-          fullName: data.full_name || data.username,
+          fullName: data.name || data.full_name || data.username,
           username: data.username,
           email: data.email,
           phone: data.phone,
@@ -597,6 +597,43 @@ router.get('/me', async (req: Request, res: Response) => {
     return res.json({ user: decoded });
   } catch {
     return res.status(401).json({ error: 'Token expired or invalid' });
+  }
+});
+
+// PUT /api/auth/profile - Updates the existing users/{uid} document directly
+router.put('/profile', async (req: Request, res: Response) => {
+  try {
+    const { id, uid, email, role, created_at, ...updates } = req.body;
+    const targetUserId = id || uid;
+    if (!targetUserId) {
+      return res.status(400).json({ error: 'User id is required' });
+    }
+
+    const userRef = doc(db, 'users', targetUserId);
+    const existingSnap = await getDoc(userRef);
+    const existingData = existingSnap.exists() ? existingSnap.data() : {};
+
+    // STRICTLY PRESERVE the user's uid, email, role, and registration data (created_at)
+    const payload = {
+      ...updates,
+      id: targetUserId,
+      uid: targetUserId,
+      email: existingData.email || email,
+      role: existingData.role || role,
+      created_at: existingData.created_at || created_at || Date.now(),
+      name: updates.name || updates.full_name || existingData.name,
+      full_name: updates.name || updates.full_name || existingData.name,
+      updated_at: new Date().toISOString()
+    };
+
+    await setDoc(userRef, payload, { merge: true });
+    return res.json({
+      success: true,
+      message: `User ${targetUserId} profile updated in Firestore users collection`,
+      user: payload
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
   }
 });
 
@@ -613,7 +650,7 @@ router.get('/check-email', async (req: Request, res: Response) => {
       return res.json({ exists: true, reason: 'preset' });
     }
 
-    const collectionsToCheck = ['profiles', 'users', 'donors', 'volunteers', 'admins'];
+    const collectionsToCheck = ['users', 'profiles', 'donors', 'volunteers', 'admins'];
     for (const col of collectionsToCheck) {
       try {
         const colSnap = await getDocs(collection(db, col));

@@ -1,21 +1,44 @@
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { doc, setDoc, getDocs, collection, query, where } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import { auth, db } from '../lib/firebase';
-import { Heart, User, AtSign, Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { Heart, User, AtSign, Mail, Lock, Eye, EyeOff, Shield, Building, Users } from 'lucide-react';
 import { recordLoginActivity, PRESET_ACCOUNTS } from '../lib/authService';
+import { useAuth } from '../contexts/AuthContext';
 
 const Register = () => {
+  const { currentUser, userData, loading: authLoading } = useAuth();
+  const [searchParams] = useSearchParams();
+  const initialRoleParam = (searchParams.get('role') || '').toUpperCase();
+  const defaultRole: 'ADMIN' | 'DONOR' | 'VOLUNTEER' = 
+    initialRoleParam === 'ADMIN' ? 'ADMIN' :
+    initialRoleParam === 'DONOR' ? 'DONOR' :
+    initialRoleParam === 'VOLUNTEER' ? 'VOLUNTEER' : 'DONOR';
+
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [role, setRole] = useState<'DONOR' | 'VOLUNTEER' | 'ADMIN'>('DONOR');
+  const [role, setRole] = useState<'ADMIN' | 'DONOR' | 'VOLUNTEER'>(defaultRole);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+
+  // If user is already authenticated, route them directly to their registered dashboard
+  useEffect(() => {
+    if (currentUser && userData?.role && !authLoading) {
+      const targetPath = `/${userData.role.toLowerCase()}`;
+      navigate(targetPath, { replace: true });
+    }
+  }, [currentUser, userData, authLoading, navigate]);
+
+  useEffect(() => {
+    if (initialRoleParam === 'ADMIN' || initialRoleParam === 'DONOR' || initialRoleParam === 'VOLUNTEER') {
+      setRole(initialRoleParam as 'ADMIN' | 'DONOR' | 'VOLUNTEER');
+    }
+  }, [initialRoleParam]);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,39 +93,34 @@ const Register = () => {
         console.warn('Server check-email query error:', err);
       }
 
-      // Check Firestore collections for email
-      const collectionsToCheck = ['profiles', 'users', 'donors', 'volunteers', 'admins'];
-      for (const col of collectionsToCheck) {
-        try {
-          const emailSnap = await getDocs(query(collection(db, col), where('email', '==', cleanEmail)));
-          if (!emailSnap.empty) {
-            toast.error('This email is already registered with another account. The same email cannot register a second account with another role.');
-            setLoading(false);
-            return;
-          }
-        } catch (e) {
-          console.warn(`Query ${col} for email uniqueness failed:`, e);
+      // Check Firestore users collection for email (single source of truth)
+      try {
+        const emailSnap = await getDocs(query(collection(db, 'users'), where('email', '==', cleanEmail)));
+        if (!emailSnap.empty) {
+          toast.error('This email is already registered with another account. The same email cannot register a second account with another role.');
+          setLoading(false);
+          return;
         }
+      } catch (e) {
+        console.warn('Query users for email uniqueness failed:', e);
       }
 
-      // 2. Check if username is already taken in preset accounts or Firestore
+      // 2. Check if username is already taken in preset accounts or Firestore users collection
       if (PRESET_ACCOUNTS[cleanUsername]) {
         toast.error(`The username "${cleanUsername}" is reserved. Please choose another username.`);
         setLoading(false);
         return;
       }
 
-      for (const col of collectionsToCheck) {
-        try {
-          const userSnap = await getDocs(query(collection(db, col), where('username', '==', cleanUsername)));
-          if (!userSnap.empty) {
-            toast.error(`The username "${cleanUsername}" is already in use. Please select a different username.`);
-            setLoading(false);
-            return;
-          }
-        } catch (e) {
-          console.warn(`Query ${col} for username uniqueness failed:`, e);
+      try {
+        const userSnap = await getDocs(query(collection(db, 'users'), where('username', '==', cleanUsername)));
+        if (!userSnap.empty) {
+          toast.error(`The username "${cleanUsername}" is already in use. Please select a different username.`);
+          setLoading(false);
+          return;
         }
+      } catch (e) {
+        console.warn('Query users for username uniqueness failed:', e);
       }
 
       // Set in-flight registration role so AuthContext assigns the correct role immediately
@@ -128,53 +146,29 @@ const Register = () => {
       const nowIso = new Date().toISOString();
       const baseUserData = {
         id: uid,
+        uid: uid,
         name: cleanName,
         full_name: cleanName,
         email: cleanEmail,
         username: cleanUsername,
+        username_lower: cleanUsername.toLowerCase(),
+        user_name: cleanUsername,
         role,
         is_active: true,
         created_at: nowMs,
         last_login: nowIso
       };
 
-      // Save to users and profiles
-      await Promise.all([
-        setDoc(doc(db, 'users', uid), baseUserData),
-        setDoc(doc(db, 'profiles', uid), baseUserData)
-      ]);
+      // Firestore "users" is the single source of truth for every registered user
+      await setDoc(doc(db, 'users', uid), baseUserData);
 
-      // Save to dedicated divided table
-      if (role === 'ADMIN') {
-        await setDoc(doc(db, 'admins', uid), {
-          ...baseUserData,
-          role: 'admin',
-          permissions: ['system_admin', 'manage_users', 'manage_donations', 'view_analytics'],
-          organization: 'FoodBridge Team'
-        });
+      // Also create role-partitioned document for high-performance direct queries
+      if (role === 'DONOR') {
+        await setDoc(doc(db, 'donors', uid), baseUserData, { merge: true }).catch(() => {});
       } else if (role === 'VOLUNTEER') {
-        await setDoc(doc(db, 'volunteers', uid), {
-          ...baseUserData,
-          role: 'volunteer',
-          vehicle_type: 'Standard Transport',
-          availability_status: 'Available',
-          assigned_zones: ['General Zone'],
-          total_deliveries: 0,
-          hours_served: 0,
-          rating: 5.0,
-          is_verified: true
-        });
-      } else {
-        await setDoc(doc(db, 'donors', uid), {
-          ...baseUserData,
-          role: 'donor',
-          donor_type: 'Individual',
-          organization_name: cleanName,
-          total_donations: 0,
-          food_donated_kg: 0,
-          meals_provided: 0,
-          badges: ['FoodBridge Donor']
-        });
+        await setDoc(doc(db, 'volunteers', uid), baseUserData, { merge: true }).catch(() => {});
+      } else if (role === 'ADMIN') {
+        await setDoc(doc(db, 'admins', uid), baseUserData, { merge: true }).catch(() => {});
       }
 
       // Record audit registration activity
@@ -217,8 +211,8 @@ const Register = () => {
   };
 
   return (
-    <div className="max-w-md mx-auto mt-8 mb-16 px-4">
-      <div className="bg-white py-8 px-8 sm:px-10 shadow-xl rounded-2xl border border-gray-100">
+    <div className="flex-1 flex flex-col items-center justify-center py-4 sm:py-8 px-4 w-full">
+      <div className="w-full max-w-md bg-white py-8 px-8 sm:px-10 shadow-xl rounded-2xl border border-gray-100">
         <div className="flex justify-center mb-6">
           <div className="w-12 h-12 bg-indigo-100 rounded-full flex items-center justify-center">
             <Heart className="w-6 h-6 text-indigo-600 fill-current" />
@@ -327,41 +321,58 @@ const Register = () => {
           {/* Role selector */}
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-2">
-              Select Your Role
+              Select Account Role
             </label>
-            <div className="grid grid-cols-3 gap-2.5">
+            <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
-                onClick={() => setRole('DONOR')}
-                className={`py-2 px-2 border rounded-xl text-xs font-semibold cursor-pointer transition-all ${
-                  role === 'DONOR'
-                    ? 'bg-indigo-50 border-indigo-600 text-indigo-700 shadow-xs'
-                    : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                Donor
-              </button>
-              <button
-                type="button"
-                onClick={() => setRole('VOLUNTEER')}
-                className={`py-2 px-2 border rounded-xl text-xs font-semibold cursor-pointer transition-all ${
-                  role === 'VOLUNTEER'
-                    ? 'bg-indigo-50 border-indigo-600 text-indigo-700 shadow-xs'
-                    : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
-                }`}
-              >
-                Volunteer
-              </button>
-              <button
-                type="button"
+                id="register-role-admin"
                 onClick={() => setRole('ADMIN')}
-                className={`py-2 px-2 border rounded-xl text-xs font-semibold cursor-pointer transition-all ${
+                className={`py-2 px-2 border rounded-xl text-xs font-semibold cursor-pointer transition-all flex flex-col items-center gap-1 ${
                   role === 'ADMIN'
-                    ? 'bg-indigo-50 border-indigo-600 text-indigo-700 shadow-xs'
+                    ? 'bg-purple-50 border-purple-600 text-purple-700 shadow-xs'
                     : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
                 }`}
               >
-                Admin
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] font-bold opacity-75">1.</span>
+                  <Shield className="w-3.5 h-3.5" />
+                </div>
+                <span>Admin</span>
+              </button>
+
+              <button
+                type="button"
+                id="register-role-donor"
+                onClick={() => setRole('DONOR')}
+                className={`py-2 px-2 border rounded-xl text-xs font-semibold cursor-pointer transition-all flex flex-col items-center gap-1 ${
+                  role === 'DONOR'
+                    ? 'bg-blue-50 border-blue-600 text-blue-700 shadow-xs'
+                    : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] font-bold opacity-75">2.</span>
+                  <Building className="w-3.5 h-3.5" />
+                </div>
+                <span>Donor</span>
+              </button>
+
+              <button
+                type="button"
+                id="register-role-volunteer"
+                onClick={() => setRole('VOLUNTEER')}
+                className={`py-2 px-2 border rounded-xl text-xs font-semibold cursor-pointer transition-all flex flex-col items-center gap-1 ${
+                  role === 'VOLUNTEER'
+                    ? 'bg-emerald-50 border-emerald-600 text-emerald-700 shadow-xs'
+                    : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] font-bold opacity-75">3.</span>
+                  <Users className="w-3.5 h-3.5" />
+                </div>
+                <span>Volunteer</span>
               </button>
             </div>
           </div>

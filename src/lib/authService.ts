@@ -2,6 +2,7 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
+  updateProfile,
   User as FirebaseUser
 } from 'firebase/auth';
 import {
@@ -120,45 +121,40 @@ export async function resolveAccountByIdentifier(rawIdentifier: string): Promise
 
   // If user entered a direct email
   if (cleanId.includes('@')) {
-    // Check if we have an existing profile or user doc with this email to get their username & role
+    // Check Firestore users collection (single source of truth)
     try {
-      const collectionsToCheck = ['profiles', 'users', 'admins', 'volunteers', 'donors'];
-      for (const col of collectionsToCheck) {
-        const q = query(collection(db, col), where('email', '==', cleanLower), limit(1));
-        const snap = await getDocs(q);
-        if (!snap.empty) {
-          const docSnap = snap.docs[0];
-          const data = docSnap.data();
-          const roleUpper = normalizeRole(data.role || (col === 'admins' ? 'ADMIN' : col === 'volunteers' ? 'VOLUNTEER' : 'DONOR'));
-          return {
-            email: cleanLower,
-            username: data.username || cleanLower.split('@')[0],
-            fullName: data.full_name || data.name,
-            role: roleUpper,
-            matchedDoc: data,
-            docId: docSnap.id,
-            isEmail: true
-          };
-        }
+      const q = query(collection(db, 'users'), where('email', '==', cleanLower), limit(1));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const docSnap = snap.docs[0];
+        const data = docSnap.data();
+        const roleUpper = normalizeRole(data.role || 'DONOR');
+        return {
+          email: cleanLower,
+          username: data.username || cleanLower.split('@')[0],
+          fullName: data.full_name || data.name,
+          role: roleUpper,
+          matchedDoc: data,
+          docId: docSnap.id,
+          isEmail: true
+        };
       }
 
-      // Broad scan if indexed query is empty
-      for (const col of collectionsToCheck) {
-        const colSnap = await getDocs(collection(db, col));
-        const found = colSnap.docs.find(d => String(d.data()?.email || '').trim().toLowerCase() === cleanLower);
-        if (found) {
-          const data = found.data();
-          const roleUpper = normalizeRole(data.role || (col === 'admins' ? 'ADMIN' : col === 'volunteers' ? 'VOLUNTEER' : 'DONOR'));
-          return {
-            email: cleanLower,
-            username: data.username || cleanLower.split('@')[0],
-            fullName: data.full_name || data.name,
-            role: roleUpper,
-            matchedDoc: data,
-            docId: found.id,
-            isEmail: true
-          };
-        }
+      // Broad scan of users collection if indexed query is empty
+      const usersSnap = await getDocs(collection(db, 'users'));
+      const found = usersSnap.docs.find(d => String(d.data()?.email || '').trim().toLowerCase() === cleanLower);
+      if (found) {
+        const data = found.data();
+        const roleUpper = normalizeRole(data.role || 'DONOR');
+        return {
+          email: cleanLower,
+          username: data.username || cleanLower.split('@')[0],
+          fullName: data.full_name || data.name,
+          role: roleUpper,
+          matchedDoc: data,
+          docId: found.id,
+          isEmail: true
+        };
       }
     } catch (e) {
       console.warn('Lookup by email query error:', e);
@@ -187,21 +183,23 @@ export async function resolveAccountByIdentifier(rawIdentifier: string): Promise
     };
   }
 
-  // Search across Firestore collections for username
-  const collectionsToCheck = ['profiles', 'users', 'admins', 'volunteers', 'donors'];
-  for (const col of collectionsToCheck) {
+  // Search Firestore collections (users, donors, volunteers, admins, profiles) for username
+  const collectionsToCheck = ['users', 'donors', 'volunteers', 'admins', 'profiles'];
+
+  for (const colName of collectionsToCheck) {
     try {
       // 1. Direct equality check
-      const q = query(collection(db, col), where('username', '==', cleanId), limit(1));
+      const q = query(collection(db, colName), where('username', '==', cleanId), limit(1));
       const snap = await getDocs(q);
       if (!snap.empty) {
         const docSnap = snap.docs[0];
         const data = docSnap.data();
-        const roleUpper = normalizeRole(data.role || (col === 'admins' ? 'ADMIN' : col === 'volunteers' ? 'VOLUNTEER' : 'DONOR'));
+        const fallbackRole = colName === 'admins' ? 'ADMIN' : colName === 'volunteers' ? 'VOLUNTEER' : 'DONOR';
+        const roleUpper = normalizeRole(data.role || fallbackRole);
         return {
           email: data.email || `${cleanLower}@foodbridge.app`,
           username: data.username || cleanId,
-          fullName: data.full_name || data.name,
+          fullName: data.full_name || data.name || data.username,
           role: roleUpper,
           matchedDoc: data,
           docId: docSnap.id,
@@ -210,16 +208,17 @@ export async function resolveAccountByIdentifier(rawIdentifier: string): Promise
       }
 
       // 2. Case-insensitive lowercase check
-      const qLower = query(collection(db, col), where('username', '==', cleanLower), limit(1));
+      const qLower = query(collection(db, colName), where('username', '==', cleanLower), limit(1));
       const snapLower = await getDocs(qLower);
       if (!snapLower.empty) {
         const docSnap = snapLower.docs[0];
         const data = docSnap.data();
-        const roleUpper = normalizeRole(data.role || (col === 'admins' ? 'ADMIN' : col === 'volunteers' ? 'VOLUNTEER' : 'DONOR'));
+        const fallbackRole = colName === 'admins' ? 'ADMIN' : colName === 'volunteers' ? 'VOLUNTEER' : 'DONOR';
+        const roleUpper = normalizeRole(data.role || fallbackRole);
         return {
           email: data.email || `${cleanLower}@foodbridge.app`,
           username: data.username || cleanId,
-          fullName: data.full_name || data.name,
+          fullName: data.full_name || data.name || data.username,
           role: roleUpper,
           matchedDoc: data,
           docId: docSnap.id,
@@ -227,30 +226,33 @@ export async function resolveAccountByIdentifier(rawIdentifier: string): Promise
         };
       }
     } catch (err) {
-      console.warn(`Error querying ${col} for username:`, err);
+      console.warn(`Error querying ${colName} for username:`, err);
     }
   }
 
-  // Broad collection scan if indexed query is empty
-  try {
-    const profilesSnap = await getDocs(collection(db, 'profiles'));
-    for (const d of profilesSnap.docs) {
-      const data = d.data();
-      const u = String(data.username || '').trim().toLowerCase();
-      if (u === cleanLower) {
-        return {
-          email: data.email || `${cleanLower}@foodbridge.app`,
-          username: data.username || cleanId,
-          fullName: data.full_name || data.name,
-          role: normalizeRole(data.role),
-          matchedDoc: data,
-          docId: d.id,
-          isEmail: false
-        };
+  // Broad collection scan across all user collections if indexed query is empty
+  for (const colName of collectionsToCheck) {
+    try {
+      const snap = await getDocs(collection(db, colName));
+      for (const d of snap.docs) {
+        const data = d.data();
+        const u = String(data.username || data.user_name || '').trim().toLowerCase();
+        if (u === cleanLower) {
+          const fallbackRole = colName === 'admins' ? 'ADMIN' : colName === 'volunteers' ? 'VOLUNTEER' : 'DONOR';
+          return {
+            email: data.email || `${cleanLower}@foodbridge.app`,
+            username: data.username || cleanId,
+            fullName: data.full_name || data.name || data.username,
+            role: normalizeRole(data.role || fallbackRole),
+            matchedDoc: data,
+            docId: d.id,
+            isEmail: false
+          };
+        }
       }
+    } catch (err) {
+      console.warn(`Broad scan ${colName} error:`, err);
     }
-  } catch (err) {
-    console.warn('Broad profile scan error:', err);
   }
 
   return null;
@@ -354,36 +356,12 @@ export async function authenticateWithUsernameAndPassword(
     throw new Error(`No account found with username "${cleanIdentifier}". Please check your username or register.`);
   }
 
-  // Pre-authentication role check if account role is already known
+  // Pre-authentication role check: protect admin portal
   if (account && targetRole) {
     const normTarget = targetRole.toUpperCase();
     const accountRole = account.role.toUpperCase();
-    if (normTarget === 'VOLUNTEER' && accountRole === 'DONOR') {
-      await recordLoginActivity({
-        userId: account.docId || 'unknown',
-        username: account.username || cleanIdentifier,
-        fullName: account.fullName || cleanIdentifier,
-        email: account.email || '',
-        role: 'DONOR',
-        status: 'FAILED',
-        failureReason: 'Donor credentials cannot log in as Volunteer'
-      });
-      throw new Error('Access denied: Donor credentials cannot log in as Volunteer. Please switch to the Donor portal.');
-    }
-    if (normTarget === 'DONOR' && accountRole === 'VOLUNTEER') {
-      await recordLoginActivity({
-        userId: account.docId || 'unknown',
-        username: account.username || cleanIdentifier,
-        fullName: account.fullName || cleanIdentifier,
-        email: account.email || '',
-        role: 'VOLUNTEER',
-        status: 'FAILED',
-        failureReason: 'Volunteer credentials cannot log in as Donor'
-      });
-      throw new Error('Access denied: Volunteer credentials cannot log in as Donor. Please switch to the Volunteer portal.');
-    }
     if (normTarget === 'ADMIN' && accountRole !== 'ADMIN') {
-      throw new Error('Access denied: Admin credentials required. You cannot log in as Admin.');
+      throw new Error('Access denied: Administrator credentials required to access the Admin portal.');
     }
   }
 
@@ -471,66 +449,31 @@ export async function authenticateWithUsernameAndPassword(
   const uid = firebaseUser.uid;
   const nowIso = new Date().toISOString();
 
-  // Check partitioned collections to confirm exact role
-  const [adminDoc, volDoc, donorDoc, userDoc] = await Promise.all([
+  // Check partitioned collections and primary user profile to confirm exact role
+  const [userDoc, adminDoc, volDoc, donorDoc] = await Promise.all([
+    getDoc(doc(db, 'users', uid)),
     getDoc(doc(db, 'admins', uid)),
     getDoc(doc(db, 'volunteers', uid)),
-    getDoc(doc(db, 'donors', uid)),
-    getDoc(doc(db, 'users', uid))
+    getDoc(doc(db, 'donors', uid))
   ]);
 
-  if (adminDoc.exists() || targetEmail === 'srikar.srikar0906@gmail.com' || targetEmail === 'admin@foodbridge.org' || targetUsername.toLowerCase() === 'foodbridge') {
+  if (userDoc.exists() && userDoc.data()?.role) {
+    resolvedRole = normalizeRole(userDoc.data().role);
+  } else if (adminDoc.exists() || targetEmail === 'srikar.srikar0906@gmail.com' || targetEmail === 'admin@foodbridge.org' || targetUsername.toLowerCase() === 'foodbridge') {
     resolvedRole = 'ADMIN';
   } else if (volDoc.exists()) {
     resolvedRole = 'VOLUNTEER';
   } else if (donorDoc.exists()) {
     resolvedRole = 'DONOR';
-  } else if (userDoc.exists()) {
-    resolvedRole = normalizeRole(userDoc.data().role);
   } else if (account?.role) {
     resolvedRole = account.role;
   }
 
-  // Post-auth strict role isolation enforcement
-  if (targetRole) {
-    const normTarget = targetRole.toUpperCase();
-    const actualRole = resolvedRole.toUpperCase();
-
-    if (normTarget === 'VOLUNTEER' && actualRole === 'DONOR') {
-      await signOut(auth).catch(() => {});
-      localStorage.removeItem('foodbridge_user_role');
-      await recordLoginActivity({
-        userId: uid,
-        username: targetUsername,
-        fullName: account?.fullName || targetUsername,
-        email: targetEmail,
-        role: 'DONOR',
-        status: 'FAILED',
-        failureReason: 'Donor credentials cannot log in as Volunteer'
-      });
-      throw new Error('Access denied: Donor credentials cannot log in as Volunteer. Please switch to the Donor portal.');
-    }
-
-    if (normTarget === 'DONOR' && actualRole === 'VOLUNTEER') {
-      await signOut(auth).catch(() => {});
-      localStorage.removeItem('foodbridge_user_role');
-      await recordLoginActivity({
-        userId: uid,
-        username: targetUsername,
-        fullName: account?.fullName || targetUsername,
-        email: targetEmail,
-        role: 'VOLUNTEER',
-        status: 'FAILED',
-        failureReason: 'Volunteer credentials cannot log in as Donor'
-      });
-      throw new Error('Access denied: Volunteer credentials cannot log in as Donor. Please switch to the Volunteer portal.');
-    }
-
-    if (normTarget === 'ADMIN' && actualRole !== 'ADMIN') {
-      await signOut(auth).catch(() => {});
-      localStorage.removeItem('foodbridge_user_role');
-      throw new Error('Access denied: Admin credentials required. You cannot log in as Admin.');
-    }
+  // Admin portal security check: only authorized ADMINs can access admin portal
+  if (targetRole && targetRole.toUpperCase() === 'ADMIN' && resolvedRole !== 'ADMIN') {
+    await signOut(auth).catch(() => {});
+    localStorage.removeItem('foodbridge_user_role');
+    throw new Error('Access denied: Administrator credentials required to sign in through the Admin Portal.');
   }
 
   // Remember role in localStorage for session resilience
@@ -547,41 +490,8 @@ export async function authenticateWithUsernameAndPassword(
     last_login: nowIso
   };
 
-  // Sync to users and profiles
-  await Promise.all([
-    setDoc(doc(db, 'users', uid), baseData, { merge: true }).catch(() => {}),
-    setDoc(doc(db, 'profiles', uid), baseData, { merge: true }).catch(() => {})
-  ]);
-
-  // Sync role partition table
-  if (resolvedRole === 'ADMIN') {
-    await setDoc(doc(db, 'admins', uid), {
-      ...baseData,
-      role: 'admin',
-      permissions: ['system_admin', 'manage_donations', 'manage_volunteers', 'manage_donors', 'view_analytics', 'access_audit_logs'],
-      organization: 'FoodBridge Foundation',
-      city: 'Vizianagaram',
-      state: 'Andhra Pradesh'
-    }, { merge: true }).catch(() => {});
-  } else if (resolvedRole === 'VOLUNTEER') {
-    await setDoc(doc(db, 'volunteers', uid), {
-      ...baseData,
-      role: 'volunteer',
-      vehicle_type: 'Motorcycle / Scooter',
-      availability_status: 'Available',
-      assigned_zones: ['Vizianagaram Core Zone'],
-      rating: 5.0,
-      is_verified: true
-    }, { merge: true }).catch(() => {});
-  } else if (resolvedRole === 'DONOR') {
-    await setDoc(doc(db, 'donors', uid), {
-      ...baseData,
-      role: 'donor',
-      donor_type: 'Restaurant / Catering',
-      organization_name: baseData.name || 'Community Donor',
-      badges: ['FoodBridge Donor']
-    }, { merge: true }).catch(() => {});
-  }
+  // Update the existing users/{uid} document preserving uid, email, role, and registration data
+  await setDoc(doc(db, 'users', uid), baseData, { merge: true }).catch(() => {});
 
   // 4. Record successful login event in login_activity table
   await recordLoginActivity({
@@ -615,3 +525,188 @@ export async function authenticateWithUsernameAndPassword(
     username: targetUsername
   };
 }
+
+/**
+ * Updates a user's profile information directly in the Firestore database
+ * (writes to `users/{uid}` and syncs to corresponding partition collection: `volunteers/{uid}`, `donors/{uid}`, or `admins/{uid}`)
+ */
+export async function updateUserProfileInDatabase(
+  uid: string,
+  updatedData: Record<string, any>,
+  optionalRole?: string
+): Promise<{ success: boolean; message?: string }> {
+  if (!uid) {
+    throw new Error('User ID is required to update profile in database.');
+  }
+
+  const cleanName = (updatedData.name || updatedData.full_name || '').trim();
+  const cleanUsername = (updatedData.username || '').trim();
+  const cleanPhone = (updatedData.phone || '').trim();
+  const cleanOrg = (updatedData.organization || updatedData.organization_name || '').trim();
+  const cleanAddress = (updatedData.address || '').trim();
+  const cleanCity = (updatedData.city || updatedData.serviceCity || '').trim();
+  const cleanState = (updatedData.state || '').trim();
+  const cleanPincode = (updatedData.pincode || '').trim();
+  const cleanBio = (updatedData.bio || '').trim();
+  const avatarUrl = updatedData.avatar_url || updatedData.profilePicUrl || '';
+  const vehicleType = (updatedData.vehicle_type || updatedData.vehicleType || '').trim();
+  const availability = (updatedData.availability || updatedData.availability_status || '').trim();
+  const emergencyContact = (updatedData.emergency_contact || updatedData.emergencyContact || '').trim();
+
+  // 1. Prepare base update payload for 'users/{uid}'
+  const userPayload: Record<string, any> = {
+    id: uid,
+    uid: uid,
+    updated_at: new Date().toISOString()
+  };
+
+  if (cleanName) {
+    userPayload.name = cleanName;
+    userPayload.full_name = cleanName;
+  }
+  if (cleanUsername) {
+    userPayload.username = cleanUsername;
+    userPayload.username_lower = cleanUsername.toLowerCase();
+    userPayload.user_name = cleanUsername;
+  }
+  if (cleanPhone) userPayload.phone = cleanPhone;
+  if (cleanOrg) {
+    userPayload.organization = cleanOrg;
+    userPayload.organization_name = cleanOrg;
+  }
+  if (cleanAddress) userPayload.address = cleanAddress;
+  if (cleanCity) {
+    userPayload.city = cleanCity;
+    userPayload.serviceCity = cleanCity;
+  }
+  if (cleanState) userPayload.state = cleanState;
+  if (cleanPincode) userPayload.pincode = cleanPincode;
+  if (cleanBio) userPayload.bio = cleanBio;
+  if (avatarUrl) {
+    userPayload.avatar_url = avatarUrl;
+    userPayload.profilePicUrl = avatarUrl;
+  }
+  if (vehicleType) {
+    userPayload.vehicle_type = vehicleType;
+    userPayload.vehicleType = vehicleType;
+  }
+  if (availability) {
+    userPayload.availability = availability;
+    userPayload.availability_status = availability;
+  }
+  if (emergencyContact) {
+    userPayload.emergency_contact = emergencyContact;
+    userPayload.emergencyContact = emergencyContact;
+  }
+
+  // Preserve role if passed or read from existing
+  let role = optionalRole ? normalizeRole(optionalRole) : updatedData.role ? normalizeRole(updatedData.role) : null;
+  if (!role) {
+    try {
+      const snap = await getDoc(doc(db, 'users', uid));
+      if (snap.exists() && snap.data()?.role) {
+        role = normalizeRole(snap.data().role);
+      }
+    } catch (e) {}
+  }
+  if (role) {
+    userPayload.role = role;
+  }
+
+  // 2. Update primary single-source-of-truth: users/{uid}
+  const userRef = doc(db, 'users', uid);
+  await setDoc(userRef, userPayload, { merge: true });
+
+  // 3. Mirror/Synchronize to partitioned collection based on role
+  try {
+    if (role === 'VOLUNTEER') {
+      const volRef = doc(db, 'volunteers', uid);
+      await setDoc(volRef, {
+        id: uid,
+        full_name: cleanName || userPayload.name,
+        email: updatedData.email || auth.currentUser?.email || '',
+        username: cleanUsername || userPayload.username,
+        phone: cleanPhone || '',
+        organization: cleanOrg || '',
+        city: cleanCity || '',
+        address: cleanAddress || '',
+        bio: cleanBio || '',
+        vehicle_type: vehicleType || 'Motorcycle',
+        availability: availability || 'Available',
+        emergency_contact: emergencyContact || '',
+        avatar_url: avatarUrl || '',
+        updated_at: new Date().toISOString()
+      }, { merge: true });
+    } else if (role === 'DONOR') {
+      const donorRef = doc(db, 'donors', uid);
+      await setDoc(donorRef, {
+        id: uid,
+        full_name: cleanName || userPayload.name,
+        email: updatedData.email || auth.currentUser?.email || '',
+        username: cleanUsername || userPayload.username,
+        phone: cleanPhone || '',
+        organization: cleanOrg || '',
+        address: cleanAddress || '',
+        city: cleanCity || '',
+        state: cleanState || '',
+        pincode: cleanPincode || '',
+        avatar_url: avatarUrl || '',
+        updated_at: new Date().toISOString()
+      }, { merge: true });
+    } else if (role === 'ADMIN') {
+      const adminRef = doc(db, 'admins', uid);
+      await setDoc(adminRef, {
+        id: uid,
+        full_name: cleanName || userPayload.name,
+        email: updatedData.email || auth.currentUser?.email || '',
+        username: cleanUsername || userPayload.username,
+        phone: cleanPhone || '',
+        organization: cleanOrg || 'FoodBridge Core Team',
+        city: cleanCity || '',
+        address: cleanAddress || '',
+        avatar_url: avatarUrl || '',
+        updated_at: new Date().toISOString()
+      }, { merge: true });
+    }
+  } catch (syncErr) {
+    console.warn('Syncing to partition table skipped or permission restricted:', syncErr);
+  }
+
+  // 4. Update Firebase Auth currentUser display profile if logged in as this user
+  if (auth.currentUser && auth.currentUser.uid === uid) {
+    try {
+      await updateProfile(auth.currentUser, {
+        displayName: cleanName || auth.currentUser.displayName,
+        photoURL: avatarUrl || auth.currentUser.photoURL
+      });
+    } catch (authProfErr) {
+      console.warn('Firebase Auth updateProfile skipped:', authProfErr);
+    }
+  }
+
+  // 5. Update local storage caches
+  try {
+    const rawUser = localStorage.getItem('last_plate_auth_user');
+    if (rawUser) {
+      const parsed = JSON.parse(rawUser);
+      const merged = { ...parsed, ...userPayload };
+      localStorage.setItem('last_plate_auth_user', JSON.stringify(merged));
+    }
+    if (role === 'VOLUNTEER') {
+      localStorage.setItem('last_plate_volunteer_profile', JSON.stringify({
+        fullName: cleanName || userPayload.name,
+        email: updatedData.email || auth.currentUser?.email || '',
+        phone: cleanPhone,
+        bio: cleanBio,
+        vehicleType: vehicleType || 'Motorcycle',
+        serviceCity: cleanCity,
+        availability: availability || 'Available',
+        emergencyContact: emergencyContact,
+        profilePicUrl: avatarUrl
+      }));
+    }
+  } catch (e) {}
+
+  return { success: true, message: 'Profile updated in Firestore database' };
+}
+

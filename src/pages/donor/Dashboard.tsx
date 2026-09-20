@@ -1,18 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, where, onSnapshot, addDoc, doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
-import { Plus, Package, Clock, MapPin, X, Phone, Building, Info, UserCheck, Loader2, Sparkles, CheckCircle } from 'lucide-react';
+import { Plus, Package, Clock, MapPin, X, Phone, Building, Info, UserCheck, Loader2, Sparkles, CheckCircle, User as UserIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { Donation } from '../../types';
 import { useLocation } from '../../hooks/useLocation';
 import { QRGenerator } from '../../components/QRGenerator';
+import { UserProfileModal } from '../../components/UserProfileModal';
 
 const DonorDashboard = () => {
   const { currentUser, userData } = useAuth();
   const { position } = useLocation();
   const [donations, setDonations] = useState<Donation[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -182,18 +184,28 @@ const DonorDashboard = () => {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-8">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">My Donations</h1>
-          <p className="text-gray-600 mt-1">Manage your food donations and track pickups</p>
+          <p className="text-gray-600 mt-1">Manage your food donations, edit profile and track pickups</p>
         </div>
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors shadow-sm font-medium"
-        >
-          <Plus className="w-5 h-5" />
-          New Donation
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setIsProfileModalOpen(true)}
+            className="flex items-center gap-2 bg-white text-gray-700 border border-gray-200 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors shadow-xs font-medium text-sm cursor-pointer"
+            title="Update your business and contact information in the database"
+          >
+            <UserIcon className="w-4 h-4 text-indigo-600" />
+            <span>Edit Profile</span>
+          </button>
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors shadow-xs font-medium text-sm cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>New Donation</span>
+          </button>
+        </div>
       </div>
 
       {loading ? (
@@ -434,6 +446,12 @@ const DonorDashboard = () => {
           </div>
         </div>
       )}
+
+      {/* User Profile Database Edit Modal */}
+      <UserProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+      />
     </div>
   );
 };

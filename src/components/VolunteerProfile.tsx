@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { User, Mail, Phone, MapPin, Bike, ShieldCheck, Camera, Save, CheckCircle2, Award, Heart, Clock, Sparkles, AlertCircle } from 'lucide-react';
+import { doc, setDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { useAuth } from '../contexts/AuthContext';
+import { updateUserProfileInDatabase } from '../lib/authService';
 
 export interface VolunteerProfileData {
   fullName: string;
@@ -46,6 +50,7 @@ interface VolunteerProfileProps {
 }
 
 export const VolunteerProfile: React.FC<VolunteerProfileProps> = ({ onBackToDashboard }) => {
+  const { currentUser, userData } = useAuth();
   const [profile, setProfile] = useState<VolunteerProfileData>(() => {
     try {
       const saved = localStorage.getItem('last_plate_volunteer_profile');
@@ -54,6 +59,24 @@ export const VolunteerProfile: React.FC<VolunteerProfileProps> = ({ onBackToDash
       return DEFAULT_PROFILE;
     }
   });
+
+  // Sync with Firestore user data when loaded
+  useEffect(() => {
+    if (userData) {
+      setProfile((prev) => ({
+        ...prev,
+        fullName: userData.name || (userData as any).full_name || prev.fullName,
+        email: userData.email || prev.email,
+        phone: (userData as any).phone || prev.phone,
+        bio: (userData as any).bio || prev.bio,
+        vehicleType: (userData as any).vehicle_type || (userData as any).vehicleType || prev.vehicleType,
+        serviceCity: (userData as any).city || (userData as any).serviceCity || prev.serviceCity,
+        availability: (userData as any).availability || (userData as any).availability_status || prev.availability,
+        emergencyContact: (userData as any).emergency_contact || (userData as any).emergencyContact || prev.emergencyContact,
+        profilePicUrl: (userData as any).avatar_url || (userData as any).profilePicUrl || prev.profilePicUrl
+      }));
+    }
+  }, [userData]);
 
   const [isSavedToast, setIsSavedToast] = useState(false);
   const [customPhotoInput, setCustomPhotoInput] = useState('');
@@ -69,14 +92,33 @@ export const VolunteerProfile: React.FC<VolunteerProfileProps> = ({ onBackToDash
     }
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       localStorage.setItem('last_plate_volunteer_profile', JSON.stringify(profile));
+
+      // UPDATE the existing users/{uid} and volunteers/{uid} documents in Firestore
+      const uid = currentUser?.uid || userData?.id;
+      if (uid) {
+        await updateUserProfileInDatabase(uid, {
+          name: profile.fullName.trim(),
+          full_name: profile.fullName.trim(),
+          phone: profile.phone.trim(),
+          bio: profile.bio.trim(),
+          vehicle_type: profile.vehicleType.trim(),
+          city: profile.serviceCity.trim(),
+          service_city: profile.serviceCity.trim(),
+          availability: profile.availability.trim(),
+          emergency_contact: profile.emergencyContact.trim(),
+          avatar_url: profile.profilePicUrl,
+          role: 'VOLUNTEER'
+        });
+      }
+
       setIsSavedToast(true);
       setTimeout(() => setIsSavedToast(false), 3000);
     } catch (err) {
-      console.error(err);
+      console.error('Error updating volunteer profile in Firestore users:', err);
     }
   };
 

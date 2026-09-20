@@ -1,16 +1,19 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { collection, query, onSnapshot, orderBy, doc, updateDoc, addDoc, deleteDoc } from 'firebase/firestore';
+import { collection, query, onSnapshot, orderBy, doc, updateDoc, addDoc, deleteDoc, setDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import { 
   Users, Package, Clock, CheckCircle, Bell, Search, Map as MapIcon, Activity, 
   ChevronDown, ChevronUp, Eye, X, Phone, Mail, Building, MapPin, Info, Navigation, 
   QrCode, Shield, HeartHandshake, Truck, Database, RefreshCw, Check, Star, ShieldCheck, AlertCircle,
-  LogIn, LogOut, Laptop, Smartphone, Globe, Download, Terminal, Copy, ShieldAlert, Key, Filter, CheckCircle2, AlertTriangle, ExternalLink, Sparkles, Trash2
+  LogIn, LogOut, Laptop, Smartphone, Globe, Download, Terminal, Copy, ShieldAlert, Key, Filter, CheckCircle2, AlertTriangle, ExternalLink, Sparkles, Trash2, Edit, Save
 } from 'lucide-react';
 import { db } from '../../lib/firebase';
 import { Donation, Location, User, Notification, AdminUser, VolunteerUser, DonorUser } from '../../types';
 import LiveMap from '../../components/Map';
 import { QRGenerator } from '../../components/QRGenerator';
+import { AdminDatabaseView } from '../../components/AdminDatabaseView';
+import { UserProfileModal } from '../../components/UserProfileModal';
+import { updateUserProfileInDatabase } from '../../lib/authService';
 
 const AdminDashboard = () => {
   const [donations, setDonations] = useState<Donation[]>([]);
@@ -24,6 +27,7 @@ const AdminDashboard = () => {
   const [syncingTables, setSyncingTables] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [donationFilter, setDonationFilter] = useState<'ALL' | 'PENDING' | 'ASSIGNED' | 'PICKED_UP'>('ALL');
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   const initialAdminLoadRef = useRef(true);
   const knownAdminDonationIds = useRef<Set<string>>(new Set());
@@ -42,7 +46,7 @@ const AdminDashboard = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'USERS' | 'LOGINS' | 'ACTIVITY'>('OVERVIEW');
+  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'DATABASE' | 'USERS' | 'LOGINS' | 'ACTIVITY'>('OVERVIEW');
   const [expandedUser, setExpandedUser] = useState<string | null>(null);
   const [selectedDonation, setSelectedDonation] = useState<Donation | null>(null);
 
@@ -50,20 +54,86 @@ const AdminDashboard = () => {
   const [userToDelete, setUserToDelete] = useState<{ id: string; name: string; email?: string; role: string } | null>(null);
   const [isDeletingUser, setIsDeletingUser] = useState(false);
 
+  // Admin edit user details state
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [isSavingUserEdit, setIsSavingUserEdit] = useState(false);
+  const [editFormData, setEditFormData] = useState({
+    name: '',
+    phone: '',
+    organization: '',
+    address: '',
+    city: '',
+    state: '',
+    pincode: '',
+    bio: '',
+    vehicle_type: '',
+    availability: '',
+    is_active: true
+  });
+
+  const handleStartEditUser = (user: User) => {
+    setEditingUser(user);
+    setEditFormData({
+      name: user.name || (user as any).full_name || '',
+      phone: user.phone || '',
+      organization: user.organization || (user as any).organization_name || '',
+      address: user.address || '',
+      city: user.city || '',
+      state: user.state || '',
+      pincode: user.pincode || '',
+      bio: user.bio || '',
+      vehicle_type: (user as any).vehicle_type || (user as any).vehicleType || '',
+      availability: (user as any).availability || (user as any).availability_status || '',
+      is_active: user.is_active ?? true
+    });
+  };
+
+  const handleSaveUserEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    setIsSavingUserEdit(true);
+
+    try {
+      const updatePayload: Record<string, any> = {
+        name: editFormData.name.trim(),
+        full_name: editFormData.name.trim(),
+        phone: editFormData.phone.trim(),
+        organization: editFormData.organization.trim(),
+        address: editFormData.address.trim(),
+        city: editFormData.city.trim(),
+        state: editFormData.state.trim(),
+        pincode: editFormData.pincode.trim(),
+        bio: editFormData.bio.trim(),
+        is_active: Boolean(editFormData.is_active),
+      };
+
+      if (editingUser.role === 'VOLUNTEER') {
+        updatePayload.vehicle_type = editFormData.vehicle_type.trim();
+        updatePayload.availability = editFormData.availability.trim();
+        updatePayload.availability_status = editFormData.availability.trim();
+      }
+
+      // Synchronize changes to both users collection and partition collection
+      await updateUserProfileInDatabase(editingUser.id, updatePayload, editingUser.role);
+
+      toast.success(`User "${editFormData.name}" updated successfully in Firestore database!`);
+      setEditingUser(null);
+    } catch (err: any) {
+      console.error('Failed to update user profile in Firestore:', err);
+      toast.error(err?.message || 'Failed to update user profile in Firestore.');
+    } finally {
+      setIsSavingUserEdit(false);
+    }
+  };
+
   const handlePermanentDeleteUser = async () => {
     if (!userToDelete) return;
     const { id: targetUserId, name: targetName, role: targetRole } = userToDelete;
     setIsDeletingUser(true);
 
     try {
-      // 1. Direct permanent deletion across all Firestore user collections
-      const collectionsToPurge = ['profiles', 'users', 'admins', 'volunteers', 'donors'];
-      const firestoreDeletions = collectionsToPurge.map(colName =>
-        deleteDoc(doc(db, colName, targetUserId)).catch(err => {
-          console.warn(`[firestore] Could not delete ${colName}/${targetUserId}:`, err?.message);
-        })
-      );
-      await Promise.allSettled(firestoreDeletions);
+      // 1. Delete directly from the single source of truth: Firestore users collection
+      await deleteDoc(doc(db, 'users', targetUserId));
 
       // 2. Server API route deletion for complete database and memory wipeout
       try {
@@ -110,55 +180,42 @@ const AdminDashboard = () => {
   };
 
   useEffect(() => {
-    // Fetch Users & Profiles
-    let currentUsers: Record<string, any> = {};
-    let currentProfiles: Record<string, any> = {};
-
-    const updateUsersState = () => {
-      const merged: Record<string, User> = {};
-      const allIds = new Set([...Object.keys(currentUsers), ...Object.keys(currentProfiles)]);
-      allIds.forEach(id => {
-        let rawDate = currentUsers[id]?.created_at || currentProfiles[id]?.created_at || Date.now();
+    // Firestore "users" collection is the single source of truth for all registered users
+    const unUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
+      const userMap: Record<string, User> = {};
+      snapshot.forEach(docSnap => {
+        const data = docSnap.data();
+        let rawDate = data.created_at || Date.now();
         if (typeof rawDate === 'string') {
           rawDate = new Date(rawDate).getTime();
         }
-        
-        merged[id] = {
-          ...(currentUsers[id] || {}),
-          ...(currentProfiles[id] || {}),
-          id,
-          // ensure name is prioritized
-          name: currentUsers[id]?.name || currentProfiles[id]?.full_name || currentProfiles[id]?.fullName || 'Unknown',
-          role: currentUsers[id]?.role || (currentProfiles[id]?.role ? currentProfiles[id].role.toUpperCase() : 'DONOR'),
-          email: currentUsers[id]?.email || currentProfiles[id]?.email || '',
+
+        userMap[docSnap.id] = {
+          ...data,
+          id: docSnap.id,
+          uid: docSnap.id,
+          name: data.name || data.full_name || data.fullName || 'User',
+          role: (data.role ? String(data.role).toUpperCase() : 'DONOR') as any,
+          email: data.email || '',
           created_at: rawDate,
-          last_login: currentUsers[id]?.last_login || currentProfiles[id]?.last_login || null,
-          is_active: currentUsers[id]?.is_active ?? currentProfiles[id]?.is_active ?? true,
-          bio: currentUsers[id]?.bio || currentProfiles[id]?.bio || '',
-          avatar_url: currentUsers[id]?.avatar_url || currentProfiles[id]?.avatar_url || '',
-          availability: currentUsers[id]?.availability || currentProfiles[id]?.availability || '',
-          privacy_settings: currentUsers[id]?.privacy_settings || currentProfiles[id]?.privacy_settings || {},
-          preferences: currentUsers[id]?.preferences || currentProfiles[id]?.preferences || {},
-          updated_at: currentUsers[id]?.updated_at || currentProfiles[id]?.updated_at || rawDate,
+          last_login: data.last_login || null,
+          is_active: data.is_active ?? true,
+          bio: data.bio || '',
+          avatar_url: data.avatar_url || data.profilePicUrl || '',
+          phone: data.phone || '',
+          organization: data.organization || data.organization_name || '',
+          city: data.city || data.serviceCity || '',
+          state: data.state || '',
+          pincode: data.pincode || '',
+          address: data.address || '',
+          vehicle_type: data.vehicle_type || data.vehicleType || '',
+          availability: data.availability || data.availability_status || '',
+          updated_at: data.updated_at || rawDate,
         } as User;
       });
-      setUsers(merged);
-    };
-
-    const unUsers = onSnapshot(collection(db, 'users'), (snapshot) => {
-      currentUsers = {};
-      snapshot.forEach(doc => {
-        currentUsers[doc.id] = doc.data();
-      });
-      updateUsersState();
-    });
-
-    const unProfiles = onSnapshot(collection(db, 'profiles'), (snapshot) => {
-      currentProfiles = {};
-      snapshot.forEach(doc => {
-        currentProfiles[doc.id] = doc.data();
-      });
-      updateUsersState();
+      setUsers(userMap);
+    }, (err) => {
+      console.warn("Firestore users onSnapshot error:", err);
     });
 
     // Fetch Divided Role Tables
@@ -246,7 +303,6 @@ const AdminDashboard = () => {
 
     return () => {
       unUsers();
-      unProfiles();
       unAdmins();
       unVolunteers();
       unDonors();
@@ -281,17 +337,16 @@ const AdminDashboard = () => {
   };
 
   const effectiveAdmins = useMemo(() => {
-    if (adminsList.length > 0) return adminsList;
     return (Object.values(users) as User[])
-      .filter(u => u.role === 'ADMIN' || u.id === 'usr-admin-01' || u.email === 'srikar.srikar0906@gmail.com')
+      .filter(u => u.role === 'ADMIN' || u.id === 'usr-admin-01' || u.email === 'srikar.srikar0906@gmail.com' || u.email === 'admin@foodbridge.org')
       .map(u => ({
         id: u.id,
-        full_name: u.name,
+        full_name: u.name || (u as any).full_name || 'Admin',
         email: u.email,
         username: u.username || 'FoodBridge',
         phone: u.phone || '7780447031',
         role: 'admin' as const,
-        organization: u.organization || 'FoodBridge Foundation',
+        organization: u.organization || (u as any).organization_name || 'FoodBridge Foundation',
         city: u.city || 'Vizianagaram',
         state: u.state || 'Andhra Pradesh',
         pincode: u.pincode || '535003',
@@ -301,15 +356,14 @@ const AdminDashboard = () => {
         created_at: typeof u.created_at === 'number' ? new Date(u.created_at).toISOString() : String(u.created_at || ''),
         last_login: u.last_login
       }));
-  }, [adminsList, users]);
+  }, [users]);
 
   const effectiveVolunteers = useMemo(() => {
-    if (volunteersList.length > 0) return volunteersList;
     return (Object.values(users) as User[])
       .filter(u => u.role === 'VOLUNTEER')
       .map(u => ({
         id: u.id,
-        full_name: u.name,
+        full_name: u.name || (u as any).full_name || 'Volunteer',
         email: u.email,
         username: u.username || u.email.split('@')[0],
         phone: u.phone || 'N/A',
@@ -319,26 +373,25 @@ const AdminDashboard = () => {
         state: u.state || 'Andhra Pradesh',
         pincode: u.pincode || '535003',
         address: u.address || 'Local Hub',
-        vehicle_type: 'Motorcycle / Scooter',
-        availability_status: 'Available' as const,
+        vehicle_type: (u as any).vehicle_type || (u as any).vehicleType || 'Motorcycle / Scooter',
+        availability_status: ((u as any).availability || (u as any).availability_status || 'Available') as any,
         assigned_zones: [u.city ? `${u.city} Central Zone` : 'Vizianagaram Core Zone'],
-        total_deliveries: 0,
-        hours_served: 0,
-        rating: 5.0,
+        total_deliveries: (u as any).total_deliveries || 0,
+        hours_served: (u as any).hours_served || 0,
+        rating: (u as any).rating || 5.0,
         is_verified: true,
         is_active: u.is_active ?? true,
         created_at: typeof u.created_at === 'number' ? new Date(u.created_at).toISOString() : String(u.created_at || ''),
         last_login: u.last_login
       }));
-  }, [volunteersList, users]);
+  }, [users]);
 
   const effectiveDonors = useMemo(() => {
-    if (donorsList.length > 0) return donorsList;
     return (Object.values(users) as User[])
       .filter(u => u.role === 'DONOR')
       .map(u => ({
         id: u.id,
-        full_name: u.name,
+        full_name: u.name || (u as any).full_name || 'Donor',
         email: u.email,
         username: u.username || u.email.split('@')[0],
         phone: u.phone || 'N/A',
@@ -357,7 +410,7 @@ const AdminDashboard = () => {
         created_at: typeof u.created_at === 'number' ? new Date(u.created_at).toISOString() : String(u.created_at || ''),
         last_login: u.last_login
       }));
-  }, [donorsList, users, donations]);
+  }, [users, donations]);
 
   const handleSyncTables = async () => {
     setSyncingTables(true);
@@ -607,24 +660,24 @@ const AdminDashboard = () => {
   const handleTestAuditEvent = async () => {
     setIsTestingLog(true);
     try {
-      const sampleUsers = [
-        { name: 'Dr. Ramesh Babu (Security Lead)', role: 'ADMIN', org: 'FoodBridge Operations Hub' },
-        { name: 'Kiran Kumar (Rapid Driver)', role: 'VOLUNTEER', org: 'Vizianagaram Dispatch Unit' },
-        { name: 'Royal Tandoor Kitchen', role: 'DONOR', org: 'Royal Hospitality Group' },
-        { name: 'Ananda Nilayam Orphanage', role: 'NGO', org: 'Child Welfare Trust' }
-      ];
-      const pick = sampleUsers[Math.floor(Math.random() * sampleUsers.length)];
+      const registeredList = Object.values(users) as User[];
+      const pick = registeredList.length > 0
+        ? registeredList[Math.floor(Math.random() * registeredList.length)]
+        : { name: 'FoodBridge Administrator', role: 'ADMIN', organization: 'FoodBridge HQ' };
+      const pickName = pick.name || 'FoodBridge User';
+      const pickRole = pick.role || 'ADMIN';
+      const pickOrg = pick.organization || 'FoodBridge Operations';
       const res = await fetch('/api/admin/login-activities/test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username: pick.name.split(' ')[0].toLowerCase(),
-          full_name: pick.name,
-          role: pick.role,
-          action: `${pick.role}_SESSION_VERIFY`,
+          username: pickName.split(' ')[0].toLowerCase(),
+          full_name: pickName,
+          role: pickRole,
+          action: `${pickRole}_SESSION_VERIFY`,
           ip: `192.168.1.${Math.floor(Math.random() * 200) + 20} (Direct Console)`,
           status: 'SUCCESS',
-          organization: pick.org
+          organization: pickOrg
         })
       });
       const data = await res.json();
@@ -1312,12 +1365,22 @@ const AdminDashboard = () => {
           <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
           <p className="text-gray-600 mt-1">Overview of food donation activities</p>
         </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setIsProfileModalOpen(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-white hover:bg-gray-50 text-gray-700 rounded-xl text-sm font-semibold transition-colors border border-gray-200 shadow-xs cursor-pointer"
+            title="Edit your admin profile details in the database"
+          >
+            <Shield className="w-4 h-4 text-indigo-600" />
+            <span>Edit My Profile</span>
+          </button>
+        </div>
       </div>
 
       {/* Tabs Navigation */}
       <div className="border-b border-gray-200">
-        <nav className="-mb-px flex space-x-8">
-          {(['OVERVIEW', 'USERS', 'LOGINS', 'ACTIVITY'] as const).map((tab) => (
+        <nav className="-mb-px flex space-x-8 overflow-x-auto">
+          {(['OVERVIEW', 'DATABASE', 'USERS', 'LOGINS', 'ACTIVITY'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => {
@@ -1326,9 +1389,9 @@ const AdminDashboard = () => {
                   setTableFilter('AUDIT_LOGS');
                 }
               }}
-              className={`whitespace-nowrap pb-4 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 ${
+              className={`whitespace-nowrap pb-4 px-1 border-b-2 font-medium text-sm transition-colors flex items-center gap-2 cursor-pointer ${
                 activeTab === tab
-                  ? 'border-indigo-500 text-indigo-600'
+                  ? 'border-indigo-600 text-indigo-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
@@ -1338,16 +1401,25 @@ const AdminDashboard = () => {
                   <span>Overview</span>
                 </>
               )}
+              {tab === 'DATABASE' && (
+                <>
+                  <Database className="w-4 h-4 text-indigo-600" />
+                  <span className="font-bold">Database & Users</span>
+                  <span className="ml-1 px-1.5 py-0.5 rounded-full text-xs font-bold bg-indigo-100 text-indigo-700">
+                    {Object.keys(users).length}
+                  </span>
+                </>
+              )}
               {tab === 'USERS' && (
                 <>
-                  <Database className="w-4 h-4" />
-                  <span>Database Tables & Roles</span>
+                  <Users className="w-4 h-4 text-slate-600" />
+                  <span>Partition Tables & Roles</span>
                 </>
               )}
               {tab === 'LOGINS' && (
                 <>
                   <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                  <span>Login Activities & Audit Trail</span>
+                  <span>Login Activities & Audit</span>
                   <span className="ml-1 px-1.5 py-0.5 rounded-full text-xs font-bold bg-indigo-100 text-indigo-700">
                     {effectiveLoginLogs.length}
                   </span>
@@ -1367,13 +1439,13 @@ const AdminDashboard = () => {
       {/* Stats Grid - Divided Tables Metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
         {[
-          { label: 'Admins Table', value: effectiveAdmins.length, icon: Shield, color: 'text-rose-600', action: () => { setActiveTab('USERS'); setTableFilter('ADMINS'); } },
-          { label: 'Volunteers Table', value: effectiveVolunteers.length, icon: HeartHandshake, color: 'text-emerald-600', action: () => { setActiveTab('USERS'); setTableFilter('VOLUNTEERS'); } },
-          { label: 'Donors Table', value: effectiveDonors.length, icon: Building, color: 'text-indigo-600', action: () => { setActiveTab('USERS'); setTableFilter('DONORS'); } },
+          { label: 'Database Users', value: Object.keys(users).length, icon: Database, color: 'text-indigo-600', action: () => { setActiveTab('DATABASE'); } },
+          { label: 'Admins Table', value: effectiveAdmins.length, icon: Shield, color: 'text-rose-600', action: () => { setActiveTab('DATABASE'); } },
+          { label: 'Volunteers Table', value: effectiveVolunteers.length, icon: HeartHandshake, color: 'text-emerald-600', action: () => { setActiveTab('DATABASE'); } },
+          { label: 'Donors Table', value: effectiveDonors.length, icon: Building, color: 'text-blue-600', action: () => { setActiveTab('DATABASE'); } },
           { label: 'Food Donations', value: donations.length, icon: Package, color: 'text-amber-600', action: () => { setActiveTab('USERS'); setTableFilter('DONATIONS'); } },
           { label: 'Dispatches', value: pickupsList.length || (stats.active + stats.picked_up), icon: Truck, color: 'text-blue-600', action: () => { setActiveTab('USERS'); setTableFilter('PICKUPS'); } },
           { label: 'Online Now', value: stats.online, icon: Activity, color: 'text-teal-600', action: () => { setActiveTab('OVERVIEW'); } },
-          { label: 'Completed', value: stats.completed, icon: CheckCircle, color: 'text-green-600', action: () => { setActiveTab('USERS'); setTableFilter('DONATIONS'); } },
           { label: 'Login Audits', value: effectiveLoginLogs.length, icon: ShieldCheck, color: 'text-purple-600', action: () => { setActiveTab('LOGINS'); setTableFilter('AUDIT_LOGS'); } },
         ].map((stat, i) => (
           <div 
@@ -1751,6 +1823,21 @@ const AdminDashboard = () => {
           </div>
         </div>
       </div>
+      )}
+
+      {activeTab === 'DATABASE' && (
+        <AdminDatabaseView
+          users={users}
+          adminsList={adminsList}
+          volunteersList={volunteersList}
+          donorsList={donorsList}
+          donations={donations}
+          loginLogsList={loginLogsList}
+          onEditUser={handleStartEditUser}
+          onDeleteUser={setUserToDelete}
+          onSyncTables={handleSyncTables}
+          syncingTables={syncingTables}
+        />
       )}
 
       {activeTab === 'USERS' && (
@@ -2561,6 +2648,17 @@ const AdminDashboard = () => {
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
+                                    handleStartEditUser(user);
+                                  }}
+                                  className="p-1.5 hover:bg-indigo-100 rounded-lg text-indigo-600 transition-colors"
+                                  title="Edit User Profile (Updates users/{uid} in Firestore)"
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
                                     setUserToDelete({
                                       id: user.id,
                                       name: user.name,
@@ -2606,24 +2704,37 @@ const AdminDashboard = () => {
                                 </div>
                                 <div className="mt-4 pt-3 border-t border-gray-200 flex justify-between items-center">
                                   <div className="text-xs text-gray-500 font-medium">
-                                    Storage: synchronized across <code className="text-indigo-600 font-mono">profiles</code>, <code className="text-indigo-600 font-mono">users</code> and role collections
+                                    Single Source of Truth: Firestore <code className="text-emerald-700 font-mono bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">users/{user.id}</code>
                                   </div>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setUserToDelete({
-                                        id: user.id,
-                                        name: user.name,
-                                        email: user.email,
-                                        role: user.role
-                                      });
-                                    }}
-                                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 rounded-lg text-xs font-semibold transition-colors"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                    Permanently Delete User from Database
-                                  </button>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleStartEditUser(user);
+                                      }}
+                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded-lg text-xs font-semibold transition-colors"
+                                    >
+                                      <Edit className="w-3.5 h-3.5" />
+                                      Edit User Details
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setUserToDelete({
+                                          id: user.id,
+                                          name: user.name,
+                                          email: user.email,
+                                          role: user.role
+                                        });
+                                      }}
+                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 rounded-lg text-xs font-semibold transition-colors"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                      Permanently Delete
+                                    </button>
+                                  </div>
                                 </div>
                               </td>
                             </tr>
@@ -3154,6 +3265,218 @@ const AdminDashboard = () => {
         </div>
       )}
 
+      {/* Edit User Modal - Direct updates to users/{uid} preserving uid, email, role, and registration data */}
+      {editingUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-5 my-8">
+            <div className="flex items-start justify-between border-b pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl">
+                  <Edit className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">
+                    Edit Stakeholder Profile
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    Direct update to Firestore <code className="text-emerald-700 font-mono bg-emerald-50 px-1 py-0.5 rounded border border-emerald-200">users/{editingUser.id}</code>
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingUser(null)}
+                className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Preserved Identity Metadata Banner */}
+            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 space-y-1.5 text-xs">
+              <div className="flex justify-between items-center">
+                <span className="text-gray-500 font-medium">User UID:</span>
+                <span className="font-mono text-gray-800 text-[11px] bg-white px-2 py-0.5 rounded border border-gray-200">{editingUser.id}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-500 font-medium">Account Email:</span>
+                <span className="font-mono text-gray-800 font-medium">{editingUser.email || 'N/A'}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-500 font-medium">Assigned Role:</span>
+                <span className="font-bold text-indigo-700 uppercase">{editingUser.role}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-500 font-medium">Registered On:</span>
+                <span className="text-gray-600">{new Date(editingUser.created_at).toLocaleString()}</span>
+              </div>
+              <div className="pt-1.5 text-[11px] text-emerald-800 font-medium border-t border-slate-200">
+                ✓ UID, Email, Role, and registration timestamp are locked and preserved during this update.
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveUserEdit} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
+                <div className="space-y-1 sm:col-span-2">
+                  <label className="font-semibold text-gray-700">Full Name / Display Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={editFormData.name}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, name: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden text-xs"
+                    placeholder="e.g. Dr. Ramesh Babu"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-gray-700">Contact Phone</label>
+                  <input
+                    type="tel"
+                    value={editFormData.phone}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, phone: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden text-xs"
+                    placeholder="e.g. 7780447031"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-gray-700">Organization / Affiliation</label>
+                  <input
+                    type="text"
+                    value={editFormData.organization}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, organization: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden text-xs"
+                    placeholder="e.g. FoodBridge Operations Hub"
+                  />
+                </div>
+
+                <div className="space-y-1 sm:col-span-2">
+                  <label className="font-semibold text-gray-700">Street Address</label>
+                  <input
+                    type="text"
+                    value={editFormData.address}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, address: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden text-xs"
+                    placeholder="e.g. MVGR College Road, Chintalavalasa"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-gray-700">City</label>
+                  <input
+                    type="text"
+                    value={editFormData.city}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, city: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden text-xs"
+                    placeholder="e.g. Vizianagaram"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-semibold text-gray-700">State & Pincode</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={editFormData.state}
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, state: e.target.value }))}
+                      className="w-1/2 px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden text-xs"
+                      placeholder="State"
+                    />
+                    <input
+                      type="text"
+                      value={editFormData.pincode}
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, pincode: e.target.value }))}
+                      className="w-1/2 px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden text-xs"
+                      placeholder="Pincode"
+                    />
+                  </div>
+                </div>
+
+                {editingUser.role === 'VOLUNTEER' && (
+                  <>
+                    <div className="space-y-1">
+                      <label className="font-semibold text-gray-700">Vehicle Type</label>
+                      <input
+                        type="text"
+                        value={editFormData.vehicle_type}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, vehicle_type: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden text-xs"
+                        placeholder="e.g. Two-Wheeler / Electric Van"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="font-semibold text-gray-700">Availability Status</label>
+                      <select
+                        value={editFormData.availability}
+                        onChange={(e) => setEditFormData(prev => ({ ...prev, availability: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden text-xs"
+                      >
+                        <option value="Available">Available</option>
+                        <option value="Busy">Busy (On Duty)</option>
+                        <option value="Off Duty">Off Duty</option>
+                      </select>
+                    </div>
+                  </>
+                )}
+
+                <div className="space-y-1 sm:col-span-2">
+                  <label className="font-semibold text-gray-700">Bio / Notes</label>
+                  <textarea
+                    rows={2}
+                    value={editFormData.bio}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, bio: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:outline-hidden text-xs resize-none"
+                    placeholder="Additional details about this stakeholder..."
+                  />
+                </div>
+
+                <div className="sm:col-span-2 flex items-center gap-2 pt-1">
+                  <input
+                    type="checkbox"
+                    id="edit_is_active"
+                    checked={editFormData.is_active}
+                    onChange={(e) => setEditFormData(prev => ({ ...prev, is_active: e.target.checked }))}
+                    className="w-4 h-4 text-indigo-600 rounded border-gray-300 focus:ring-indigo-500"
+                  />
+                  <label htmlFor="edit_is_active" className="font-semibold text-gray-700 cursor-pointer">
+                    Account is Active & Allowed System Access
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  disabled={isSavingUserEdit}
+                  onClick={() => setEditingUser(null)}
+                  className="px-4 py-2 border border-gray-200 text-gray-700 hover:bg-gray-50 rounded-xl text-xs font-semibold transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingUserEdit}
+                  className="inline-flex items-center gap-2 px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-600/20 transition-colors disabled:opacity-50"
+                >
+                  {isSavingUserEdit ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving to Firestore...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Save Changes to users/{editingUser.id}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Permanent User Deletion Confirmation Modal */}
       {userToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-fadeIn">
@@ -3167,7 +3490,7 @@ const AdminDashboard = () => {
                   Permanently Delete User?
                 </h3>
                 <p className="text-xs text-gray-500 leading-relaxed">
-                  This action is permanent and irreversible. It will immediately erase this user across all Firestore database collections and server tables.
+                  This action is permanent and irreversible. It will immediately erase this user from the Firestore users database.
                 </p>
               </div>
             </div>
@@ -3192,7 +3515,7 @@ const AdminDashboard = () => {
                 <span className="font-mono text-gray-600 truncate max-w-[200px]">{userToDelete.id}</span>
               </div>
               <div className="pt-2 border-t border-rose-200/60 text-[11px] text-rose-800 font-medium">
-                Collections purged: <code className="font-mono">profiles</code>, <code className="font-mono">users</code>, <code className="font-mono">admins</code>, <code className="font-mono">volunteers</code>, <code className="font-mono">donors</code>
+                Single Source Document Purged: <code className="font-mono">users/{userToDelete.id}</code>
               </div>
             </div>
 
@@ -3227,6 +3550,11 @@ const AdminDashboard = () => {
           </div>
         </div>
       )}
+      {/* Admin Profile Modal */}
+      <UserProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+      />
     </div>
   );
 };

@@ -7,15 +7,18 @@ import { db } from '../../lib/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { Donation } from '../../types';
 import LiveMap from '../../components/Map';
+import { VolunteerProfile } from '../../components/VolunteerProfile';
+import { UserProfileModal } from '../../components/UserProfileModal';
 
 const VolunteerDashboard = () => {
   const { currentUser, userData } = useAuth();
   const [donations, setDonations] = useState<Donation[]>([]);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [viewMode, setViewMode] = useState<'LIST' | 'MAP'>('LIST');
   const [selectedDonation, setSelectedDonation] = useState<Donation | null>(null);
-  const [filterTab, setFilterTab] = useState<'ALL' | 'PENDING' | 'MY_TASKS'>('PENDING');
+  const [filterTab, setFilterTab] = useState<'ALL' | 'PENDING' | 'MY_TASKS' | 'PROFILE'>('PENDING');
 
   const [loading, setLoading] = useState(true);
   const initialLoadRef = useRef(true);
@@ -252,6 +255,14 @@ const VolunteerDashboard = () => {
             </button>
           </div>
           <button
+            onClick={() => setIsProfileModalOpen(true)}
+            className="flex items-center gap-2 bg-white text-gray-700 border border-gray-200 px-3.5 py-2 rounded-lg hover:bg-gray-50 transition-colors shadow-xs font-medium text-sm cursor-pointer"
+            title="Edit your volunteer profile in the database"
+          >
+            <User className="w-4 h-4 text-indigo-600" />
+            <span>Edit Profile</span>
+          </button>
+          <button
             onClick={() => setIsScannerOpen(!isScannerOpen)}
             className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors shadow-xs font-medium text-sm cursor-pointer"
           >
@@ -384,9 +395,25 @@ const VolunteerDashboard = () => {
         >
           <span>All Rescues ({donations.length})</span>
         </button>
+
+        <button
+          onClick={() => setFilterTab('PROFILE')}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer ${
+            filterTab === 'PROFILE'
+              ? 'bg-indigo-600 text-white shadow-xs'
+              : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+          }`}
+        >
+          <User className="w-3.5 h-3.5" />
+          <span>My Volunteer Profile</span>
+        </button>
       </div>
 
-      {isScannerOpen && (
+      {filterTab === 'PROFILE' ? (
+        <VolunteerProfile />
+      ) : (
+        <>
+          {isScannerOpen && (
         <div className="bg-white p-6 rounded-xl shadow-xs border border-gray-100 max-w-lg mx-auto">
           <div id="qr-reader" className="w-full"></div>
           <p className="text-sm text-center text-gray-500 mt-4">Point your camera at the donor's QR code to verify pickup.</p>
@@ -551,6 +578,8 @@ const VolunteerDashboard = () => {
           )}
         </div>
       )}
+    </>
+  )}
 
       {/* Volunteer Food Details Modal */}
       {selectedDonation && (
@@ -699,6 +728,12 @@ const VolunteerDashboard = () => {
           </div>
         </div>
       )}
+
+      {/* User Profile Database Edit Modal */}
+      <UserProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+      />
     </div>
   );
 };

@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { DonationItem, DashboardMetrics, PickupStatus, UserRoleType } from '../types';
 import { ShieldAlert, Users, Utensils, CheckCircle2, AlertTriangle, Search, Download, Trash2, Edit, Eye, Sparkles, Building2, Bike, BarChart2, X, Filter, User, Phone, MapPin, Building, Save, ShieldCheck, Check, Copy } from 'lucide-react';
+import { collection, onSnapshot, doc, setDoc } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { useAuth } from '../contexts/AuthContext';
 
 export interface AdminPersonalInfo {
   fullName: string;
@@ -47,10 +50,26 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   realtimeConnected = true,
   lastSyncTime = '',
 }) => {
+  const { currentUser, userData } = useAuth();
   const [activeTab, setActiveTab] = useState<'overview' | 'donations' | 'users' | 'profile'>('overview');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('All');
   const [localAdminOnly, setLocalAdminOnly] = useState<boolean>(showAdminOnlyRealtime);
+  const [registeredUsers, setRegisteredUsers] = useState<any[]>([]);
+
+  // Listen to Firestore "users" collection (single source of truth)
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'users'), (snapshot) => {
+      const docs = snapshot.docs.map(d => ({
+        id: d.id,
+        ...d.data()
+      }));
+      setRegisteredUsers(docs);
+    }, (err) => {
+      console.warn('AdminDashboardView users listener error:', err);
+    });
+    return () => unsub();
+  }, []);
 
   // Admin personal profile state with persistent local storage
   const [adminProfile, setAdminProfile] = useState<AdminPersonalInfo>(() => {
@@ -69,7 +88,26 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const [saveSuccessMessage, setSaveSuccessMessage] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
-  const handleSaveProfile = (e: React.FormEvent) => {
+  // Sync profile when currentUser / userData arrives
+  useEffect(() => {
+    if (userData) {
+      const updatedProfile: AdminPersonalInfo = {
+        fullName: userData.name || (userData as any).full_name || DEFAULT_ADMIN_PROFILE.fullName,
+        email: userData.email || DEFAULT_ADMIN_PROFILE.email,
+        phone: (userData as any).phone || DEFAULT_ADMIN_PROFILE.phone,
+        address: (userData as any).address || DEFAULT_ADMIN_PROFILE.address,
+        city: (userData as any).city || DEFAULT_ADMIN_PROFILE.city,
+        state: (userData as any).state || DEFAULT_ADMIN_PROFILE.state,
+        pincode: (userData as any).pincode || DEFAULT_ADMIN_PROFILE.pincode,
+        organization: (userData as any).organization || DEFAULT_ADMIN_PROFILE.organization,
+        roleTitle: DEFAULT_ADMIN_PROFILE.roleTitle
+      };
+      setAdminProfile(updatedProfile);
+      setEditForm(updatedProfile);
+    }
+  }, [userData]);
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setAdminProfile(editForm);
     try {
@@ -77,7 +115,28 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     } catch (e) {
       console.warn('Could not write to localStorage:', e);
     }
-    setSaveSuccessMessage('Admin Personal Information saved successfully!');
+
+    // Save directly to the existing users/{uid} document, preserving uid, email, role, and registration data
+    const targetUid = currentUser?.uid || 'usr-admin-01';
+    if (targetUid) {
+      await setDoc(doc(db, 'users', targetUid), {
+        id: targetUid,
+        uid: targetUid,
+        name: editForm.fullName.trim(),
+        full_name: editForm.fullName.trim(),
+        phone: editForm.phone.trim(),
+        address: editForm.address.trim(),
+        city: editForm.city.trim(),
+        state: editForm.state.trim(),
+        pincode: editForm.pincode.trim(),
+        organization: editForm.organization.trim(),
+        updated_at: new Date().toISOString()
+      }, { merge: true }).catch(err => {
+        console.warn('Failed to update admin profile in users collection:', err);
+      });
+    }
+
+    setSaveSuccessMessage('Admin Personal Information saved successfully to Firestore users collection!');
     setTimeout(() => setSaveSuccessMessage(null), 4000);
   };
 
@@ -124,23 +183,6 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     a.download = `LastPlate_Donations_Report_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
   };
-
-  const sampleUsers = [
-    {
-      name: adminProfile.fullName,
-      email: adminProfile.email,
-      role: 'Super Administrator',
-      status: 'Active (MVGR Vizianagaram)',
-      phone: adminProfile.phone,
-      address: `${adminProfile.address}, ${adminProfile.city}, ${adminProfile.state} - ${adminProfile.pincode}`,
-      totalDonations: 154
-    },
-    { name: 'Grand Palace Hotel', email: 'kitchen@grandpalace.com', role: 'Hotel Donor', status: 'Verified', totalDonations: 42 },
-    { name: 'Lumière French Bakery', email: 'contact@lumiere.com', role: 'Bakery Donor', status: 'Verified', totalDonations: 18 },
-    { name: 'Sarah Jenkins', email: 'sarah.j@volunteers.org', role: 'Volunteer Captain', status: 'ID Verified', totalDonations: 34 },
-    { name: 'David Miller', email: 'dmiller@rescue.org', role: 'Volunteer Driver', status: 'ID Verified', totalDonations: 29 },
-    { name: 'St. Jude Shelter', email: 'director@stjude.org', role: 'NGO Recipient', status: 'Verified', totalDonations: 82 },
-  ];
 
   return (
     <div className="py-8 sm:py-12 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
@@ -698,23 +740,40 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 bg-white/80">
-                {sampleUsers.map((u, i) => (
-                  <tr key={i} className="hover:bg-gray-50">
-                    <td className="p-3 font-bold text-gray-900">{u.name}</td>
-                    <td className="p-3 text-gray-500">{u.email}</td>
-                    <td className="p-3 font-semibold text-emerald-800">{u.role}</td>
-                    <td className="p-3 text-gray-600">
-                      <div className="font-semibold text-gray-900">{u.phone}</div>
-                      <div className="text-[10px] text-gray-500 truncate max-w-[200px]">{u.address}</div>
+                {registeredUsers.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-6 text-center text-gray-500">
+                      No registered stakeholders found in the Firestore users collection.
                     </td>
-                    <td className="p-3">
-                      <span className="bg-emerald-100 text-emerald-900 font-bold px-2 py-0.5 rounded text-[10px]">
-                        {u.status}
-                      </span>
-                    </td>
-                    <td className="p-3 text-right font-extrabold text-gray-900">{u.totalDonations} Batches</td>
                   </tr>
-                ))}
+                ) : (
+                  registeredUsers.map((u, i) => {
+                    const displayName = u.name || u.full_name || u.username || 'Stakeholder';
+                    const userEmail = u.email || 'N/A';
+                    const userRole = u.role || 'DONOR';
+                    const phoneText = u.phone || 'N/A';
+                    const addressText = [u.address, u.city, u.state, u.pincode].filter(Boolean).join(', ') || 'No address specified';
+                    const statusText = u.is_active !== false ? 'Active' : 'Inactive';
+                    const rescuesCount = u.total_donations || u.totalDonations || 0;
+                    return (
+                      <tr key={u.id || i} className="hover:bg-gray-50">
+                        <td className="p-3 font-bold text-gray-900">{displayName}</td>
+                        <td className="p-3 text-gray-500">{userEmail}</td>
+                        <td className="p-3 font-semibold text-emerald-800">{userRole}</td>
+                        <td className="p-3 text-gray-600">
+                          <div className="font-semibold text-gray-900">{phoneText}</div>
+                          <div className="text-[10px] text-gray-500 truncate max-w-[200px]">{addressText}</div>
+                        </td>
+                        <td className="p-3">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${u.is_active !== false ? 'bg-emerald-100 text-emerald-900' : 'bg-gray-100 text-gray-600'}`}>
+                            {statusText}
+                          </span>
+                        </td>
+                        <td className="p-3 text-right font-extrabold text-gray-900">{rescuesCount} Batches</td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>
