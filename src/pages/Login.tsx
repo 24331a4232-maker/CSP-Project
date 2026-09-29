@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Heart, User, Lock, Eye, EyeOff, Shield, Users, Building, ArrowRight, CheckCircle2 } from 'lucide-react';
 import { authenticateWithUsernameAndPassword } from '../lib/authService';
+import { identifyRoleAndRedirectOnLogin, redirectToRoleDashboard } from '../lib/roleHelper';
 import { useAuth } from '../contexts/AuthContext';
 
 type LoginRole = 'ADMIN' | 'DONOR' | 'VOLUNTEER';
@@ -122,11 +123,15 @@ const Login: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const navigate = useNavigate();
 
-  // If user is already authenticated, route them directly to their registered dashboard
+  // If user is already authenticated, immediately identify their role and route to their specific dashboard
   useEffect(() => {
-    if (currentUser && userData?.role && !authLoading) {
-      const targetPath = `/${userData.role.toLowerCase()}`;
-      navigate(targetPath, { replace: true });
+    if (currentUser && !authLoading) {
+      identifyRoleAndRedirectOnLogin({
+        user: currentUser,
+        userData,
+        navigate,
+        options: { replace: true }
+      });
     }
   }, [currentUser, userData, authLoading, navigate]);
 
@@ -162,8 +167,15 @@ const Login: React.FC = () => {
     try {
       const result = await authenticateWithUsernameAndPassword(cleanId, password, selectedRole);
       toast.success(`Welcome back, ${result.username}! Signed in to your ${result.role} portal.`);
-      // Strict role-based destination: Donor -> /donor, Volunteer -> /volunteer, Admin -> /admin
-      navigate(`/${result.role.toLowerCase()}`, { replace: true });
+
+      // Identify user's role on login and immediately redirect them to their specific role dashboard
+      await identifyRoleAndRedirectOnLogin({
+        user: result.user,
+        username: result.username,
+        requestedRole: result.role,
+        navigate,
+        options: { replace: true }
+      });
     } catch (error: any) {
       const msg = error.message || 'Failed to sign in. Please verify your credentials.';
       setErrorMessage(msg);

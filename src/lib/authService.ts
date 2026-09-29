@@ -16,6 +16,9 @@ import {
   limit
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
+import { normalizeUserRole, getDashboardPathForRole, identifyUserRoleOnLogin, identifyRoleAndRedirectOnLogin, redirectToRoleDashboard, ROLE_DASHBOARDS, type UserRole } from './roleHelper';
+
+export { normalizeUserRole, getDashboardPathForRole, identifyUserRoleOnLogin, identifyRoleAndRedirectOnLogin, redirectToRoleDashboard, ROLE_DASHBOARDS, type UserRole };
 
 export interface ResolvedAccount {
   email: string;
@@ -90,38 +93,12 @@ export const PRESET_ACCOUNTS: Record<string, { email: string; username: string; 
  * Resolves a username or email string to a full account profile and target email
  */
 export async function resolveAccountByIdentifier(rawIdentifier: string): Promise<ResolvedAccount | null> {
-  const cleanId = rawIdentifier.trim();
+  const cleanId = rawIdentifier.replace(/^@/, '').trim();
   if (!cleanId) return null;
   const cleanLower = cleanId.toLowerCase();
 
-  // 1. Check preset accounts dictionary first for fast lookup (by username or email)
-  if (PRESET_ACCOUNTS[cleanLower]) {
-    const preset = PRESET_ACCOUNTS[cleanLower];
-    return {
-      email: preset.email,
-      username: preset.username,
-      fullName: preset.name,
-      role: preset.role,
-      matchedDoc: { password: preset.defaultPassword, ...preset },
-      isEmail: false
-    };
-  }
-
-  const presetByEmail = Object.values(PRESET_ACCOUNTS).find(p => p.email.toLowerCase() === cleanLower);
-  if (presetByEmail) {
-    return {
-      email: presetByEmail.email,
-      username: presetByEmail.username,
-      fullName: presetByEmail.name,
-      role: presetByEmail.role,
-      matchedDoc: { password: presetByEmail.defaultPassword, ...presetByEmail },
-      isEmail: true
-    };
-  }
-
-  // If user entered a direct email
+  // 1. Direct Email lookup
   if (cleanId.includes('@')) {
-    // Check Firestore users collection (single source of truth)
     try {
       const q = query(collection(db, 'users'), where('email', '==', cleanLower), limit(1));
       const snap = await getDocs(q);
@@ -131,8 +108,8 @@ export async function resolveAccountByIdentifier(rawIdentifier: string): Promise
         const roleUpper = normalizeRole(data.role || 'DONOR');
         return {
           email: cleanLower,
-          username: data.username || cleanLower.split('@')[0],
-          fullName: data.full_name || data.name,
+          username: data.username || data.user_name || cleanLower.split('@')[0],
+          fullName: data.full_name || data.name || data.username,
           role: roleUpper,
           matchedDoc: data,
           docId: docSnap.id,
@@ -148,7 +125,7 @@ export async function resolveAccountByIdentifier(rawIdentifier: string): Promise
         const roleUpper = normalizeRole(data.role || 'DONOR');
         return {
           email: cleanLower,
-          username: data.username || cleanLower.split('@')[0],
+          username: data.username || data.user_name || cleanLower.split('@')[0],
           fullName: data.full_name || data.name,
           role: roleUpper,
           matchedDoc: data,
@@ -158,6 +135,18 @@ export async function resolveAccountByIdentifier(rawIdentifier: string): Promise
       }
     } catch (e) {
       console.warn('Lookup by email query error:', e);
+    }
+
+    const presetByEmail = Object.values(PRESET_ACCOUNTS).find(p => p.email.toLowerCase() === cleanLower);
+    if (presetByEmail) {
+      return {
+        email: presetByEmail.email,
+        username: presetByEmail.username,
+        fullName: presetByEmail.name,
+        role: presetByEmail.role,
+        matchedDoc: { password: presetByEmail.defaultPassword, ...presetByEmail },
+        isEmail: true
+      };
     }
 
     // Default fallback if not found in database yet
@@ -170,25 +159,32 @@ export async function resolveAccountByIdentifier(rawIdentifier: string): Promise
     };
   }
 
-  // Check preset accounts dictionary first for fast lookup
-  if (PRESET_ACCOUNTS[cleanLower]) {
-    const preset = PRESET_ACCOUNTS[cleanLower];
-    return {
-      email: preset.email,
-      username: preset.username,
-      fullName: preset.name,
-      role: preset.role,
-      matchedDoc: { password: preset.defaultPassword, ...preset },
-      isEmail: false
-    };
-  }
-
-  // Search Firestore collections (users, donors, volunteers, admins, profiles) for username
-  const collectionsToCheck = ['users', 'donors', 'volunteers', 'admins', 'profiles'];
+  // 2. Search live Firestore database FIRST across user and partition collections
+  // This guarantees that any username updated in profile is recognized instantly.
+  const collectionsToCheck = ['users', 'admins', 'volunteers', 'donors', 'profiles'];
 
   for (const colName of collectionsToCheck) {
     try {
-      // 1. Direct equality check
+      // (a) Match username_lower == cleanLower
+      const qLowerField = query(collection(db, colName), where('username_lower', '==', cleanLower), limit(1));
+      const snapLowerField = await getDocs(qLowerField);
+      if (!snapLowerField.empty) {
+        const docSnap = snapLowerField.docs[0];
+        const data = docSnap.data();
+        const fallbackRole = colName === 'admins' ? 'ADMIN' : colName === 'volunteers' ? 'VOLUNTEER' : 'DONOR';
+        const roleUpper = normalizeRole(data.role || fallbackRole);
+        return {
+          email: data.email || `${cleanLower}@foodbridge.app`,
+          username: data.username || data.user_name || cleanId,
+          fullName: data.full_name || data.name || data.username,
+          role: roleUpper,
+          matchedDoc: data,
+          docId: docSnap.id,
+          isEmail: false
+        };
+      }
+
+      // (b) Direct equality check on 'username'
       const q = query(collection(db, colName), where('username', '==', cleanId), limit(1));
       const snap = await getDocs(q);
       if (!snap.empty) {
@@ -207,7 +203,7 @@ export async function resolveAccountByIdentifier(rawIdentifier: string): Promise
         };
       }
 
-      // 2. Case-insensitive lowercase check
+      // (c) Case-insensitive check on 'username' == cleanLower
       const qLower = query(collection(db, colName), where('username', '==', cleanLower), limit(1));
       const snapLower = await getDocs(qLower);
       if (!snapLower.empty) {
@@ -225,23 +221,64 @@ export async function resolveAccountByIdentifier(rawIdentifier: string): Promise
           isEmail: false
         };
       }
+
+      // (d) Direct equality check on 'user_name'
+      const qUserName = query(collection(db, colName), where('user_name', '==', cleanId), limit(1));
+      const snapUserName = await getDocs(qUserName);
+      if (!snapUserName.empty) {
+        const docSnap = snapUserName.docs[0];
+        const data = docSnap.data();
+        const fallbackRole = colName === 'admins' ? 'ADMIN' : colName === 'volunteers' ? 'VOLUNTEER' : 'DONOR';
+        const roleUpper = normalizeRole(data.role || fallbackRole);
+        return {
+          email: data.email || `${cleanLower}@foodbridge.app`,
+          username: data.username || data.user_name || cleanId,
+          fullName: data.full_name || data.name || data.username,
+          role: roleUpper,
+          matchedDoc: data,
+          docId: docSnap.id,
+          isEmail: false
+        };
+      }
     } catch (err) {
       console.warn(`Error querying ${colName} for username:`, err);
     }
   }
 
-  // Broad collection scan across all user collections if indexed query is empty
+  // 3. Exact Document ID lookup in Firestore users collection
+  try {
+    const userDocRef = doc(db, 'users', cleanId);
+    const userDocSnap = await getDoc(userDocRef);
+    if (userDocSnap.exists()) {
+      const data = userDocSnap.data();
+      const roleUpper = normalizeRole(data.role || 'DONOR');
+      return {
+        email: data.email || `${cleanLower}@foodbridge.app`,
+        username: data.username || data.user_name || cleanId,
+        fullName: data.full_name || data.name || data.username,
+        role: roleUpper,
+        matchedDoc: data,
+        docId: userDocSnap.id,
+        isEmail: false
+      };
+    }
+  } catch (docErr) {}
+
+  // 4. Broad collection scan across all user collections
   for (const colName of collectionsToCheck) {
     try {
       const snap = await getDocs(collection(db, colName));
       for (const d of snap.docs) {
         const data = d.data();
-        const u = String(data.username || data.user_name || '').trim().toLowerCase();
-        if (u === cleanLower) {
+        const u1 = String(data.username || '').trim().toLowerCase();
+        const u2 = String(data.username_lower || '').trim().toLowerCase();
+        const u3 = String(data.user_name || '').trim().toLowerCase();
+        const uEmailPrefix = String(data.email || '').split('@')[0].trim().toLowerCase();
+        if (u1 === cleanLower || u2 === cleanLower || u3 === cleanLower || uEmailPrefix === cleanLower) {
           const fallbackRole = colName === 'admins' ? 'ADMIN' : colName === 'volunteers' ? 'VOLUNTEER' : 'DONOR';
           return {
             email: data.email || `${cleanLower}@foodbridge.app`,
-            username: data.username || cleanId,
+            username: data.username || data.user_name || cleanId,
             fullName: data.full_name || data.name || data.username,
             role: normalizeRole(data.role || fallbackRole),
             matchedDoc: data,
@@ -253,6 +290,19 @@ export async function resolveAccountByIdentifier(rawIdentifier: string): Promise
     } catch (err) {
       console.warn(`Broad scan ${colName} error:`, err);
     }
+  }
+
+  // 5. Check preset accounts dictionary as fallback
+  if (PRESET_ACCOUNTS[cleanLower]) {
+    const preset = PRESET_ACCOUNTS[cleanLower];
+    return {
+      email: preset.email,
+      username: preset.username,
+      fullName: preset.name,
+      role: preset.role,
+      matchedDoc: { password: preset.defaultPassword, ...preset },
+      isEmail: false
+    };
   }
 
   return null;
@@ -540,7 +590,7 @@ export async function updateUserProfileInDatabase(
   }
 
   const cleanName = (updatedData.name || updatedData.full_name || '').trim();
-  const cleanUsername = (updatedData.username || '').trim();
+  const cleanUsername = (updatedData.username || '').replace(/^@/, '').trim();
   const cleanPhone = (updatedData.phone || '').trim();
   const cleanOrg = (updatedData.organization || updatedData.organization_name || '').trim();
   const cleanAddress = (updatedData.address || '').trim();
@@ -553,6 +603,20 @@ export async function updateUserProfileInDatabase(
   const availability = (updatedData.availability || updatedData.availability_status || '').trim();
   const emergencyContact = (updatedData.emergency_contact || updatedData.emergencyContact || '').trim();
 
+  // Fetch existing user record to guarantee preservation of email, role, and username
+  let existingData: Record<string, any> = {};
+  try {
+    const existingSnap = await getDoc(doc(db, 'users', uid));
+    if (existingSnap.exists()) {
+      existingData = existingSnap.data() || {};
+    }
+  } catch (e) {
+    console.warn('Could not read existing user doc before update:', e);
+  }
+
+  const userEmail = updatedData.email || auth.currentUser?.email || existingData.email || '';
+  let role = optionalRole ? normalizeRole(optionalRole) : updatedData.role ? normalizeRole(updatedData.role) : (existingData.role ? normalizeRole(existingData.role) : null);
+
   // 1. Prepare base update payload for 'users/{uid}'
   const userPayload: Record<string, any> = {
     id: uid,
@@ -560,6 +624,9 @@ export async function updateUserProfileInDatabase(
     updated_at: new Date().toISOString()
   };
 
+  if (userEmail) {
+    userPayload.email = userEmail;
+  }
   if (cleanName) {
     userPayload.name = cleanName;
     userPayload.full_name = cleanName;
@@ -598,17 +665,6 @@ export async function updateUserProfileInDatabase(
     userPayload.emergency_contact = emergencyContact;
     userPayload.emergencyContact = emergencyContact;
   }
-
-  // Preserve role if passed or read from existing
-  let role = optionalRole ? normalizeRole(optionalRole) : updatedData.role ? normalizeRole(updatedData.role) : null;
-  if (!role) {
-    try {
-      const snap = await getDoc(doc(db, 'users', uid));
-      if (snap.exists() && snap.data()?.role) {
-        role = normalizeRole(snap.data().role);
-      }
-    } catch (e) {}
-  }
   if (role) {
     userPayload.role = role;
   }
@@ -619,54 +675,35 @@ export async function updateUserProfileInDatabase(
 
   // 3. Mirror/Synchronize to partitioned collection based on role
   try {
+    const finalUsername = cleanUsername || userPayload.username || existingData.username || '';
+    const partitionPayload: Record<string, any> = {
+      id: uid,
+      full_name: cleanName || userPayload.name || existingData.name || '',
+      email: userEmail,
+      username: finalUsername,
+      username_lower: finalUsername.toLowerCase(),
+      user_name: finalUsername,
+      phone: cleanPhone || existingData.phone || '',
+      organization: cleanOrg || existingData.organization || '',
+      city: cleanCity || existingData.city || '',
+      address: cleanAddress || existingData.address || '',
+      avatar_url: avatarUrl || existingData.avatar_url || '',
+      updated_at: new Date().toISOString()
+    };
+
     if (role === 'VOLUNTEER') {
-      const volRef = doc(db, 'volunteers', uid);
-      await setDoc(volRef, {
-        id: uid,
-        full_name: cleanName || userPayload.name,
-        email: updatedData.email || auth.currentUser?.email || '',
-        username: cleanUsername || userPayload.username,
-        phone: cleanPhone || '',
-        organization: cleanOrg || '',
-        city: cleanCity || '',
-        address: cleanAddress || '',
-        bio: cleanBio || '',
-        vehicle_type: vehicleType || 'Motorcycle',
-        availability: availability || 'Available',
-        emergency_contact: emergencyContact || '',
-        avatar_url: avatarUrl || '',
-        updated_at: new Date().toISOString()
-      }, { merge: true });
+      partitionPayload.bio = cleanBio || existingData.bio || '';
+      partitionPayload.vehicle_type = vehicleType || existingData.vehicle_type || 'Motorcycle';
+      partitionPayload.availability = availability || existingData.availability || 'Available';
+      partitionPayload.emergency_contact = emergencyContact || existingData.emergency_contact || '';
+      await setDoc(doc(db, 'volunteers', uid), partitionPayload, { merge: true });
     } else if (role === 'DONOR') {
-      const donorRef = doc(db, 'donors', uid);
-      await setDoc(donorRef, {
-        id: uid,
-        full_name: cleanName || userPayload.name,
-        email: updatedData.email || auth.currentUser?.email || '',
-        username: cleanUsername || userPayload.username,
-        phone: cleanPhone || '',
-        organization: cleanOrg || '',
-        address: cleanAddress || '',
-        city: cleanCity || '',
-        state: cleanState || '',
-        pincode: cleanPincode || '',
-        avatar_url: avatarUrl || '',
-        updated_at: new Date().toISOString()
-      }, { merge: true });
+      partitionPayload.state = cleanState || existingData.state || '';
+      partitionPayload.pincode = cleanPincode || existingData.pincode || '';
+      await setDoc(doc(db, 'donors', uid), partitionPayload, { merge: true });
     } else if (role === 'ADMIN') {
-      const adminRef = doc(db, 'admins', uid);
-      await setDoc(adminRef, {
-        id: uid,
-        full_name: cleanName || userPayload.name,
-        email: updatedData.email || auth.currentUser?.email || '',
-        username: cleanUsername || userPayload.username,
-        phone: cleanPhone || '',
-        organization: cleanOrg || 'FoodBridge Core Team',
-        city: cleanCity || '',
-        address: cleanAddress || '',
-        avatar_url: avatarUrl || '',
-        updated_at: new Date().toISOString()
-      }, { merge: true });
+      partitionPayload.organization = cleanOrg || 'FoodBridge Core Team';
+      await setDoc(doc(db, 'admins', uid), partitionPayload, { merge: true });
     }
   } catch (syncErr) {
     console.warn('Syncing to partition table skipped or permission restricted:', syncErr);

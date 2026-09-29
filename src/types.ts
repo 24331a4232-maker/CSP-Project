@@ -181,6 +181,7 @@ export interface Donation {
   status: 'PENDING' | 'ASSIGNED' | 'PICKED_UP' | 'COMPLETED';
   qr_token: string;
   created_at: number;
+  assigned_at?: number;
   scanned_at?: number;
   notes?: string;
 }
@@ -196,9 +197,19 @@ export interface Location {
 
 export interface Notification {
   id: string;
-  donation_id: string;
+  donation_id?: string;
+  donor_id?: string;
+  volunteer_id?: string;
+  userId?: string;
+  targetRole?: 'donor' | 'volunteer' | 'admin' | 'all' | string;
+  title?: string;
   message: string;
-  type: string;
+  type: 'DONATION_ASSIGNED' | 'DONATION_ACCEPTED' | 'DONATION_PICKED_UP' | 'QR_SCANNED' | 'DONATION_CREATED' | 'SYSTEM' | string;
   is_read: boolean;
   created_at: number;
+  volunteer_name?: string;
+  volunteer_phone?: string;
+  food_type?: string;
+  quantity?: string;
+  donor_name?: string;
 }

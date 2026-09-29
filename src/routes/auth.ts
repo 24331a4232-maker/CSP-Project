@@ -265,8 +265,10 @@ router.post('/login', async (req: Request, res: Response) => {
         for (const d of snap.docs) {
           const data = d.data();
           const uName = data.username ? String(data.username).trim().toLowerCase() : '';
+          const uNameLower = data.username_lower ? String(data.username_lower).trim().toLowerCase() : '';
+          const uNameAlt = data.user_name ? String(data.user_name).trim().toLowerCase() : '';
           const uEmail = data.email ? String(data.email).trim().toLowerCase() : '';
-          if (uName === cleanIdentifier || uEmail === cleanIdentifier) {
+          if (uName === cleanIdentifier || uNameLower === cleanIdentifier || uNameAlt === cleanIdentifier || uEmail === cleanIdentifier) {
             matchedDocId = d.id;
             matchedProfile = {
               ...data,

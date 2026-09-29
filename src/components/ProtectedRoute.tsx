@@ -2,22 +2,23 @@ import React, { useEffect, useRef } from 'react';
 import { Navigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
+import { normalizeUserRole, getDashboardPathForRole, UserRole } from '../lib/roleHelper';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  allowedRoles?: ('DONOR' | 'VOLUNTEER' | 'ADMIN')[];
+  allowedRoles?: UserRole[];
 }
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles }) => {
   const { currentUser, userData, loading } = useAuth();
   const notifiedRef = useRef(false);
 
-  const normalizedUserRole = String(userData?.role || '').toUpperCase() as 'DONOR' | 'VOLUNTEER' | 'ADMIN';
+  const normalizedUserRole = normalizeUserRole(userData?.role, 'DONOR');
   const isUnauthorized = Boolean(
     currentUser &&
     userData &&
     allowedRoles &&
-    !allowedRoles.map(r => r.toUpperCase()).includes(normalizedUserRole)
+    !allowedRoles.map(r => normalizeUserRole(r)).includes(normalizedUserRole)
   );
 
   useEffect(() => {
@@ -42,7 +43,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles 
   }
 
   if (isUnauthorized) {
-    return <Navigate to={`/${normalizedUserRole.toLowerCase()}`} replace />;
+    return <Navigate to={getDashboardPathForRole(normalizedUserRole)} replace />;
   }
 
   return <>{children}</>;

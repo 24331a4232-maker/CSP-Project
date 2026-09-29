@@ -1,24 +1,26 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, getDocs } from 'firebase/firestore';
-import { Camera, MapPin, Clock, Package, Navigation, Map as MapIcon, List, Eye, Phone, Building, User, Info, X, CheckCircle2, Sparkles, HeartHandshake, AlertCircle, Utensils, Truck } from 'lucide-react';
+import { Camera, MapPin, Clock, Package, Navigation, Map as MapIcon, List, Eye, Phone, Building, User, Info, X, CheckCircle2, Sparkles, HeartHandshake, AlertCircle, Utensils, Truck, Volume2, VolumeX } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../contexts/AuthContext';
 import { Donation } from '../../types';
+import { soundManager } from '../../lib/sound';
 import LiveMap from '../../components/Map';
 import { VolunteerProfile } from '../../components/VolunteerProfile';
 import { UserProfileModal } from '../../components/UserProfileModal';
+import { QRScannerModal } from '../../components/QRScannerModal';
 
 const VolunteerDashboard = () => {
   const { currentUser, userData } = useAuth();
   const [donations, setDonations] = useState<Donation[]>([]);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  const [scanning, setScanning] = useState(false);
   const [viewMode, setViewMode] = useState<'LIST' | 'MAP'>('LIST');
   const [selectedDonation, setSelectedDonation] = useState<Donation | null>(null);
   const [filterTab, setFilterTab] = useState<'ALL' | 'PENDING' | 'MY_TASKS' | 'PROFILE'>('PENDING');
+  const [soundEnabled, setSoundEnabled] = useState(soundManager.isEnabled());
 
   const [loading, setLoading] = useState(true);
   const initialLoadRef = useRef(true);
@@ -33,13 +35,74 @@ const VolunteerDashboard = () => {
       if (!initialLoadRef.current) {
         snapshot.docChanges().forEach(change => {
           if (change.type === 'added') {
-            const added = change.doc.data() as Donation;
+            const added = { id: change.doc.id, ...change.doc.data() } as Donation;
             const statusUpper = (added.status || '').toUpperCase();
-            if ((statusUpper === 'PENDING' || statusUpper === 'AVAILABLE') && !knownIdsRef.current.has(change.doc.id)) {
-              toast.success(
-                `🍲 New Food Donation Listed: "${added.food_type || 'Surplus Food'}" (${added.quantity || ''}) by ${added.donor_organization || added.donor_name || 'Donor'}!`,
-                { duration: 6000 }
-              );
+            if ((statusUpper === 'PENDING' || statusUpper === 'AVAILABLE' || !statusUpper) && !knownIdsRef.current.has(change.doc.id)) {
+              // Play new donation chime
+              soundManager.playNewDonationChime();
+
+              // High visibility toast
+              toast.custom((t) => (
+                <div
+                  className={`${
+                    t.visible ? 'animate-enter' : 'animate-leave'
+                  } max-w-md w-full bg-white shadow-2xl rounded-2xl pointer-events-auto flex ring-1 ring-black/5 p-4 border-l-4 border-amber-500`}
+                >
+                  <div className="flex-1 w-0">
+                    <div className="flex items-start">
+                      <div className="shrink-0 pt-0.5">
+                        <div className="w-10 h-10 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
+                          <Utensils className="w-5 h-5" />
+                        </div>
+                      </div>
+                      <div className="ml-3 flex-1">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-bold uppercase tracking-wider text-amber-600">
+                            New Food Rescue Alert! 🍲
+                          </p>
+                          <span className="text-[10px] text-gray-400 font-mono">Just now</span>
+                        </div>
+                        <p className="text-sm font-extrabold text-gray-900 mt-0.5">
+                          "{added.food_type || 'Surplus Food'}" ({added.quantity || ''})
+                        </p>
+                        <p className="mt-1 text-xs text-gray-600 leading-relaxed">
+                          From <span className="font-semibold text-gray-800">{added.donor_organization || added.donor_name || 'Donor'}</span> at {added.pickup_location}.
+                        </p>
+                        <div className="mt-2.5 flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              handleAccept(added.id, added);
+                              toast.dismiss(t.id);
+                            }}
+                            className="inline-flex items-center gap-1 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded-lg shadow-xs transition-colors cursor-pointer"
+                          >
+                            <Truck className="w-3.5 h-3.5" />
+                            <span>Accept & Claim</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setSelectedDonation(added);
+                              toast.dismiss(t.id);
+                            }}
+                            className="inline-flex items-center gap-1 text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>View Details</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex border-l border-gray-100 pl-2">
+                    <button
+                      onClick={() => toast.dismiss(t.id)}
+                      className="w-full border border-transparent rounded-none rounded-r-lg p-2 flex items-center justify-center text-xs font-medium text-gray-400 hover:text-gray-600"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ), { duration: 9000, position: 'top-right' });
             }
           }
         });
@@ -73,23 +136,23 @@ const VolunteerDashboard = () => {
     if (!currentUser) return;
     try {
       const volunteerName = userData?.name || currentUser.displayName || 'Volunteer';
+      const volunteerPhone = userData?.phone || '';
+      const nowMs = Date.now();
       
-      // Update primary collection
-      await updateDoc(doc(db, 'donations', donationId), {
+      const updateData: any = {
         status: 'ASSIGNED',
         volunteer_id: currentUser.uid,
         volunteer_name: volunteerName,
-        volunteer_phone: userData?.phone || ''
-      });
+        volunteer_phone: volunteerPhone,
+        assigned_at: nowMs
+      };
+
+      // Update primary collection
+      await updateDoc(doc(db, 'donations', donationId), updateData);
 
       // Mirror update to food_donations
       try {
-        await updateDoc(doc(db, 'food_donations', donationId), {
-          status: 'ASSIGNED',
-          volunteer_id: currentUser.uid,
-          volunteer_name: volunteerName,
-          volunteer_phone: userData?.phone || ''
-        });
+        await updateDoc(doc(db, 'food_donations', donationId), updateData);
       } catch (e) {}
 
       // Log dispatch in pickups
@@ -97,31 +160,44 @@ const VolunteerDashboard = () => {
         await addDoc(collection(db, 'pickups'), {
           donation_id: donationId,
           donor_id: donationObj?.donor_id || '',
+          donor_name: donationObj?.donor_organization || donationObj?.donor_name || 'Donor',
           volunteer_id: currentUser.uid,
           volunteer_name: volunteerName,
+          volunteer_phone: volunteerPhone,
           status: 'IN_TRANSIT',
+          food_type: donationObj?.food_type || 'Food Donation',
+          quantity: donationObj?.quantity || '',
           scheduled_time: donationObj?.pickup_time || new Date().toISOString(),
-          created_at: Date.now()
+          created_at: nowMs
         });
       } catch (e) {}
 
-      // Notify admin & donor
+      // Send Real-Time Notification specifically targeting the Donor and also available to Admin
       await addDoc(collection(db, 'notifications'), {
         donation_id: donationId,
-        message: `Donation Accepted: ${volunteerName} accepted to pick up "${donationObj?.food_type || 'Food Donation'}" (${donationObj?.quantity || ''})`,
+        donor_id: donationObj?.donor_id || '',
+        volunteer_id: currentUser.uid,
+        volunteer_name: volunteerName,
+        volunteer_phone: volunteerPhone,
+        food_type: donationObj?.food_type || 'Food Donation',
+        quantity: donationObj?.quantity || '',
+        title: 'Volunteer Accepted Your Food Donation! 🚗',
+        message: `Volunteer ${volunteerName} accepted your donation "${donationObj?.food_type || 'Food Donation'}" (${donationObj?.quantity || ''}) and is en route for pickup.`,
         type: 'DONATION_ASSIGNED',
-        targetRole: 'all',
+        targetRole: 'donor',
         is_read: false,
-        created_at: Date.now()
+        created_at: nowMs
       });
 
-      toast.success('Donation accepted! You can now view pickup details, directions, and scan QR on collection.');
+      toast.success('Donation accepted! The donor has been alerted in real time.');
       if (selectedDonation && selectedDonation.id === donationId) {
         setSelectedDonation({
           ...selectedDonation,
           status: 'ASSIGNED',
           volunteer_id: currentUser.uid,
-          volunteer_name: volunteerName
+          volunteer_name: volunteerName,
+          volunteer_phone: volunteerPhone,
+          assigned_at: nowMs
         });
       }
     } catch (error: any) {
@@ -129,68 +205,6 @@ const VolunteerDashboard = () => {
       toast.error('Failed to accept donation: ' + (error?.message || 'Unknown error'));
     }
   };
-
-  useEffect(() => {
-    if (!isScannerOpen) return;
-    
-    const scanner = new Html5QrcodeScanner(
-      "qr-reader",
-      { fps: 10, qrbox: { width: 250, height: 250 } },
-      false
-    );
-    
-    scanner.render(async (decodedText) => {
-      if (scanning) return; // Prevent double scan
-      setScanning(true);
-      scanner.clear();
-      setIsScannerOpen(false);
-      
-      try {
-        // Find donation by qr_token that belongs to this volunteer and is assigned
-        const match = donations.find(d => d.qr_token === decodedText);
-        if (!match) {
-          toast.error('Invalid QR Code or donation not assigned to you.');
-          setScanning(false);
-          return;
-        }
-
-        if (match.status !== 'ASSIGNED') {
-          toast.error('Donation is not in ASSIGNED state.');
-          setScanning(false);
-          return;
-        }
-
-        const now = Date.now();
-        // Update donation
-        await updateDoc(doc(db, 'donations', match.id), {
-          status: 'PICKED_UP',
-          scanned_at: now
-        });
-
-        // Send Notification to Admin
-        await addDoc(collection(db, 'notifications'), {
-          donation_id: match.id,
-          message: `Food Donation Collected: "${match.food_type}" (${match.quantity}, ${match.meals} meals) collected by ${userData?.name || 'Volunteer'} from ${match.donor_name || 'Donor'} at ${new Date(now).toLocaleTimeString()}`,
-          type: 'QR_SCANNED',
-          is_read: false,
-          created_at: now
-        });
-
-        toast.success('Food Collected Successfully! Thank you for reducing food waste. ✅', { duration: 5000 });
-      } catch (error: any) {
-        console.error('Error verifying QR Code:', error);
-        toast.error('Error verifying QR Code.');
-      } finally {
-        setScanning(false);
-      }
-    }, () => {
-      // Ignore seek frame errors
-    });
-
-    return () => {
-      scanner.clear().catch(() => {});
-    };
-  }, [isScannerOpen, scanning, donations, userData]);
 
   const pendingDonations = donations.filter(d => {
     const s = (d.status || '').toUpperCase();
@@ -263,11 +277,11 @@ const VolunteerDashboard = () => {
             <span>Edit Profile</span>
           </button>
           <button
-            onClick={() => setIsScannerOpen(!isScannerOpen)}
+            onClick={() => setIsScannerOpen(true)}
             className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors shadow-xs font-medium text-sm cursor-pointer"
           >
             <Camera className="w-4 h-4" />
-            {isScannerOpen ? 'Close Scanner' : 'Scan QR Code'}
+            <span>Scan QR Code</span>
           </button>
         </div>
       </div>
@@ -413,14 +427,7 @@ const VolunteerDashboard = () => {
         <VolunteerProfile />
       ) : (
         <>
-          {isScannerOpen && (
-        <div className="bg-white p-6 rounded-xl shadow-xs border border-gray-100 max-w-lg mx-auto">
-          <div id="qr-reader" className="w-full"></div>
-          <p className="text-sm text-center text-gray-500 mt-4">Point your camera at the donor's QR code to verify pickup.</p>
-        </div>
-      )}
-
-      {viewMode === 'MAP' ? (
+          {viewMode === 'MAP' ? (
         <div className="bg-white p-6 rounded-xl shadow-xs border border-gray-100">
           <h2 className="text-lg font-bold text-gray-900 mb-4">Available Donations Map</h2>
           {loading ? (
@@ -733,6 +740,12 @@ const VolunteerDashboard = () => {
       <UserProfileModal
         isOpen={isProfileModalOpen}
         onClose={() => setIsProfileModalOpen(false)}
+      />
+
+      {/* Volunteer Food Pickup QR Scanner & Verification Modal */}
+      <QRScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
       />
     </div>
   );

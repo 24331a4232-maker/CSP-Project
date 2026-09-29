@@ -3,6 +3,7 @@ import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { doc, onSnapshot, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import { User } from '../types';
+import { identifyUserRoleOnLogin, UserRole } from '../lib/roleHelper';
 
 interface AuthContextType {
   currentUser: FirebaseUser | null;
@@ -41,32 +42,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           // Listen to the single source of truth in real-time
           unsubscribeDoc = onSnapshot(userRef, async (docSnap) => {
             const userEmail = (user.email || '').trim().toLowerCase();
-            const pendingRole = sessionStorage.getItem('pending_reg_role')?.toUpperCase();
-            const cachedRole = (localStorage.getItem('foodbridge_user_role') || '').toUpperCase();
-
-            let resolvedRole: 'ADMIN' | 'VOLUNTEER' | 'DONOR';
-
-            // 1. Primary Source of Truth: Firestore User Document Role
-            if (docSnap.exists() && docSnap.data()?.role) {
-              const r = String(docSnap.data().role).toUpperCase();
-              if (r === 'ADMIN' || r === 'VOLUNTEER' || r === 'DONOR') {
-                resolvedRole = r;
-              } else {
-                resolvedRole = 'DONOR';
-              }
-            } else if (userEmail === 'srikar.srikar0906@gmail.com' || userEmail === 'admin@foodbridge.org') {
-              resolvedRole = 'ADMIN';
-            } else if (userEmail === 'john.volunteer@foodbridge.org') {
-              resolvedRole = 'VOLUNTEER';
-            } else if (userEmail === 'catering@grandpalace.com' || userEmail === 'contact@lumiere.com' || userEmail === 'contact@cityshelter.org') {
-              resolvedRole = 'DONOR';
-            } else if (pendingRole === 'ADMIN' || pendingRole === 'VOLUNTEER' || pendingRole === 'DONOR') {
-              resolvedRole = pendingRole;
-            } else if (cachedRole === 'ADMIN' || cachedRole === 'VOLUNTEER' || cachedRole === 'DONOR') {
-              resolvedRole = cachedRole as any;
-            } else {
-              resolvedRole = 'DONOR';
-            }
+            const resolvedRole: UserRole = await identifyUserRoleOnLogin({
+              user,
+              docData: docSnap.exists() ? docSnap.data() : null,
+              email: userEmail,
+              username: user.displayName
+            });
 
             localStorage.setItem('foodbridge_user_role', resolvedRole);
 

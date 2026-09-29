@@ -5,10 +5,11 @@ import {
   Users, Package, Clock, CheckCircle, Bell, Search, Map as MapIcon, Activity, 
   ChevronDown, ChevronUp, Eye, X, Phone, Mail, Building, MapPin, Info, Navigation, 
   QrCode, Shield, HeartHandshake, Truck, Database, RefreshCw, Check, Star, ShieldCheck, AlertCircle,
-  LogIn, LogOut, Laptop, Smartphone, Globe, Download, Terminal, Copy, ShieldAlert, Key, Filter, CheckCircle2, AlertTriangle, ExternalLink, Sparkles, Trash2, Edit, Save
+  LogIn, LogOut, Laptop, Smartphone, Globe, Download, Terminal, Copy, ShieldAlert, Key, Filter, CheckCircle2, AlertTriangle, ExternalLink, Sparkles, Trash2, Edit, Save, Utensils
 } from 'lucide-react';
 import { db } from '../../lib/firebase';
 import { Donation, Location, User, Notification, AdminUser, VolunteerUser, DonorUser } from '../../types';
+import { soundManager } from '../../lib/sound';
 import LiveMap from '../../components/Map';
 import { QRGenerator } from '../../components/QRGenerator';
 import { AdminDatabaseView } from '../../components/AdminDatabaseView';
@@ -265,13 +266,64 @@ const AdminDashboard = () => {
       if (!initialAdminLoadRef.current) {
         snapshot.docChanges().forEach(change => {
           if (change.type === 'added') {
-            const added = change.doc.data() as Donation;
+            const added = { id: change.doc.id, ...change.doc.data() } as Donation;
             const s = (added.status || '').toUpperCase();
             if ((s === 'PENDING' || s === 'AVAILABLE' || !s) && !knownAdminDonationIds.current.has(change.doc.id)) {
-              toast.success(
-                `🍲 New Food Donation Listed: "${added.food_type || 'Surplus Food'}" (${added.quantity || ''}) from ${added.donor_organization || added.donor_name || 'Donor'}!`,
-                { duration: 7000 }
-              );
+              soundManager.playNewDonationChime();
+
+              toast.custom((t) => (
+                <div
+                  className={`${
+                    t.visible ? 'animate-enter' : 'animate-leave'
+                  } max-w-md w-full bg-gray-900 text-white shadow-2xl rounded-2xl pointer-events-auto flex p-4 border border-amber-500/50`}
+                >
+                  <div className="flex-1 w-0">
+                    <div className="flex items-start">
+                      <div className="shrink-0 pt-0.5">
+                        <div className="w-10 h-10 rounded-full bg-amber-500 text-gray-950 flex items-center justify-center font-bold shadow-md">
+                          <Utensils className="w-5 h-5" />
+                        </div>
+                      </div>
+                      <div className="ml-3 flex-1">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-bold uppercase tracking-wider text-amber-400">
+                            Admin Dispatch Alert: New Food Listed 🍲
+                          </p>
+                          <span className="text-[10px] text-gray-400 font-mono">Just now</span>
+                        </div>
+                        <p className="text-sm font-bold text-white mt-0.5">
+                          "{added.food_type || 'Surplus Food'}" ({added.quantity || ''})
+                        </p>
+                        <p className="mt-1 text-xs text-gray-300 leading-relaxed">
+                          Posted by <span className="font-semibold text-white">{added.donor_organization || added.donor_name || 'Donor'}</span> at {added.pickup_location}.
+                        </p>
+                        <div className="mt-2.5 flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-300 bg-amber-950/80 px-2 py-0.5 rounded-md border border-amber-800">
+                            {added.meals || 1} meals feedable
+                          </span>
+                          <button
+                            onClick={() => {
+                              setSelectedDonation(added);
+                              toast.dismiss(t.id);
+                            }}
+                            className="text-xs text-amber-400 hover:text-amber-300 underline font-medium cursor-pointer"
+                          >
+                            Dispatch / View Pass
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex pl-2">
+                    <button
+                      onClick={() => toast.dismiss(t.id)}
+                      className="text-gray-400 hover:text-white p-1"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              ), { duration: 9000, position: 'top-right' });
             }
           }
         });

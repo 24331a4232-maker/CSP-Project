@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import { auth, db } from '../lib/firebase';
 import { Heart, User, AtSign, Mail, Lock, Eye, EyeOff, Shield, Building, Users } from 'lucide-react';
 import { recordLoginActivity, PRESET_ACCOUNTS } from '../lib/authService';
+import { identifyRoleAndRedirectOnLogin, getDashboardPathForRole } from '../lib/roleHelper';
 import { useAuth } from '../contexts/AuthContext';
 
 const Register = () => {
@@ -28,9 +29,13 @@ const Register = () => {
 
   // If user is already authenticated, route them directly to their registered dashboard
   useEffect(() => {
-    if (currentUser && userData?.role && !authLoading) {
-      const targetPath = `/${userData.role.toLowerCase()}`;
-      navigate(targetPath, { replace: true });
+    if (currentUser && !authLoading) {
+      identifyRoleAndRedirectOnLogin({
+        user: currentUser,
+        userData,
+        navigate,
+        options: { replace: true }
+      });
     }
   }, [currentUser, userData, authLoading, navigate]);
 
@@ -197,7 +202,7 @@ const Register = () => {
       
       sessionStorage.removeItem('pending_reg_role');
       toast.success(`Account created! Welcome, ${cleanUsername}.`);
-      navigate(`/${role.toLowerCase()}`);
+      navigate(getDashboardPathForRole(role), { replace: true });
     } catch (error: any) {
       sessionStorage.removeItem('pending_reg_role');
       if (error?.code === 'auth/email-already-in-use') {

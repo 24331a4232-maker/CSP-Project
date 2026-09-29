@@ -6,6 +6,8 @@ import { auth } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { useLocation } from '../hooks/useLocation';
 import { UserProfileModal } from './UserProfileModal';
+import { NotificationCenter } from './NotificationCenter';
+import { getDashboardPathForRole } from '../lib/roleHelper';
 
 const Navbar = () => {
   const { currentUser, userData } = useAuth();
@@ -33,7 +35,7 @@ const Navbar = () => {
           <div className="flex justify-between h-16">
             <div className="flex items-center">
               <Link 
-                to={currentUser && userData ? `/${userData.role.toLowerCase()}` : '/'} 
+                to={currentUser && userData ? getDashboardPathForRole(userData.role) : '/'} 
                 className="flex items-center gap-2 text-indigo-600 font-bold text-xl hover:text-indigo-700 transition-colors"
               >
                 <Heart className="w-6 h-6 fill-current text-emerald-600" />
@@ -88,6 +90,9 @@ const Navbar = () => {
                       <span className="hidden sm:inline">{sharing ? 'Location On' : 'Location Off'}</span>
                     </button>
                   )}
+
+                  {/* Real-Time Notification Center */}
+                  <NotificationCenter />
 
                   <button
                     onClick={handleLogout}
