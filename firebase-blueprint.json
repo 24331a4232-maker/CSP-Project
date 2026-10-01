@@ -1,226 +1,51 @@
 {
-  "entities": {
-    "Admin": {
-      "title": "Admin",
-      "description": "Administrator accounts with system configuration, moderation, and full platform access",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "full_name": { "type": "string" },
-        "email": { "type": "string", "format": "email" },
-        "username": { "type": "string" },
-        "phone": { "type": "string" },
-        "role": { "type": "string", "enum": ["admin"] },
-        "organization": { "type": "string" },
-        "permissions": { "type": "array" },
-        "is_active": { "type": "boolean" },
-        "city": { "type": "string" },
-        "state": { "type": "string" },
-        "pincode": { "type": "string" },
-        "address": { "type": "string" },
-        "created_at": { "type": "string" },
-        "last_login": { "type": "string" }
-      },
-      "required": ["id", "email", "username", "role"]
+  "collections": [
+    {
+      "name": "users",
+      "fields": {
+        "name": "string",
+        "email": "string",
+        "role": "string",
+        "created_at": "timestamp"
+      }
     },
-    "Volunteer": {
-      "title": "Volunteer",
-      "description": "Field volunteer responders who claim, transport, and deliver food donations",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "full_name": { "type": "string" },
-        "email": { "type": "string", "format": "email" },
-        "username": { "type": "string" },
-        "phone": { "type": "string" },
-        "role": { "type": "string", "enum": ["volunteer"] },
-        "organization": { "type": "string" },
-        "vehicle_type": { "type": "string" },
-        "availability_status": { "type": "string", "enum": ["Available", "Busy", "Off Duty"] },
-        "assigned_zones": { "type": "array" },
-        "total_deliveries": { "type": "number" },
-        "hours_served": { "type": "number" },
-        "rating": { "type": "number" },
-        "is_verified": { "type": "boolean" },
-        "is_active": { "type": "boolean" },
-        "city": { "type": "string" },
-        "state": { "type": "string" },
-        "pincode": { "type": "string" },
-        "address": { "type": "string" },
-        "created_at": { "type": "string" },
-        "last_login": { "type": "string" }
-      },
-      "required": ["id", "email", "username", "role"]
+    {
+      "name": "donations",
+      "fields": {
+        "donor_id": "string",
+        "volunteer_id": "string",
+        "food_type": "string",
+        "quantity": "string",
+        "meals": "number",
+        "pickup_location": "string",
+        "pickup_latitude": "number",
+        "pickup_longitude": "number",
+        "pickup_time": "string",
+        "status": "string",
+        "qr_token": "string",
+        "created_at": "timestamp",
+        "scanned_at": "timestamp"
+      }
     },
-    "Donor": {
-      "title": "Donor",
-      "description": "Food donors (restaurants, caterers, supermarkets, hotels, individuals) listing surplus food",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "full_name": { "type": "string" },
-        "email": { "type": "string", "format": "email" },
-        "username": { "type": "string" },
-        "phone": { "type": "string" },
-        "role": { "type": "string", "enum": ["donor"] },
-        "donor_type": { "type": "string" },
-        "organization_name": { "type": "string" },
-        "total_donations": { "type": "number" },
-        "food_donated_kg": { "type": "number" },
-        "meals_provided": { "type": "number" },
-        "badges": { "type": "array" },
-        "is_active": { "type": "boolean" },
-        "city": { "type": "string" },
-        "state": { "type": "string" },
-        "pincode": { "type": "string" },
-        "address": { "type": "string" },
-        "created_at": { "type": "string" },
-        "last_login": { "type": "string" }
-      },
-      "required": ["id", "email", "username", "role"]
+    {
+      "name": "locations",
+      "fields": {
+        "user_id": "string",
+        "latitude": "number",
+        "longitude": "number",
+        "timestamp": "timestamp",
+        "sharing_enabled": "boolean"
+      }
     },
-    "FoodDonation": {
-      "title": "FoodDonation",
-      "description": "Food donations with quantities, expiry times, and pickup status",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "donor_id": { "type": "string" },
-        "donor_name": { "type": "string" },
-        "donor_phone": { "type": "string" },
-        "donor_organization": { "type": "string" },
-        "food_type": { "type": "string" },
-        "category": { "type": "string" },
-        "quantity": { "type": "string" },
-        "meals": { "type": "number" },
-        "pickup_location": { "type": "string" },
-        "pickup_latitude": { "type": "number" },
-        "pickup_longitude": { "type": "number" },
-        "pickup_time": { "type": "string" },
-        "status": { "type": "string" },
-        "assigned_volunteer_id": { "type": "string" },
-        "assigned_volunteer_name": { "type": "string" },
-        "qr_token": { "type": "string" },
-        "created_at": { "type": "string" }
-      },
-      "required": ["id", "donor_id", "food_type", "quantity", "pickup_location"]
-    },
-    "Pickup": {
-      "title": "Pickup",
-      "description": "Logistics and dispatch assignment records linking donors and volunteers",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "donation_id": { "type": "string" },
-        "donor_id": { "type": "string" },
-        "volunteer_id": { "type": "string" },
-        "status": { "type": "string" },
-        "scheduled_time": { "type": "string" },
-        "completed_at": { "type": "string" },
-        "notes": { "type": "string" }
-      },
-      "required": ["id", "donation_id", "status"]
-    },
-    "Notification": {
-      "title": "Notification",
-      "description": "Real-time alerts, notifications, and event pings",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "target_user_id": { "type": "string" },
-        "target_role": { "type": "string" },
-        "donation_id": { "type": "string" },
-        "message": { "type": "string" },
-        "type": { "type": "string" },
-        "is_read": { "type": "boolean" },
-        "created_at": { "type": "string" }
-      },
-      "required": ["id", "message", "type"]
-    },
-    "LoginActivity": {
-      "title": "LoginActivity",
-      "description": "User login audit records categorized by role",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "user_id": { "type": "string" },
-        "username": { "type": "string" },
-        "role": { "type": "string" },
-        "login_time": { "type": "string" },
-        "ip_address": { "type": "string" },
-        "user_agent": { "type": "string" },
-        "status": { "type": "string" }
-      },
-      "required": ["id", "user_id", "role", "login_time"]
-    },
-    "ContactMessage": {
-      "title": "ContactMessage",
-      "description": "Contact form inquiries and support submissions",
-      "type": "object",
-      "properties": {
-        "id": { "type": "string" },
-        "name": { "type": "string" },
-        "email": { "type": "string" },
-        "phone": { "type": "string" },
-        "subject": { "type": "string" },
-        "message": { "type": "string" },
-        "created_at": { "type": "string" }
-      },
-      "required": ["id", "name", "email", "message"]
+    {
+      "name": "notifications",
+      "fields": {
+        "donation_id": "string",
+        "message": "string",
+        "type": "string",
+        "is_read": "boolean",
+        "created_at": "timestamp"
+      }
     }
-  },
-  "firestore": {
-    "/admins/{adminId}": {
-      "schema": { "$ref": "#/entities/Admin" },
-      "description": "Stores administrator accounts with system access"
-    },
-    "/volunteers/{volunteerId}": {
-      "schema": { "$ref": "#/entities/Volunteer" },
-      "description": "Stores volunteer responder accounts, vehicles, and delivery records"
-    },
-    "/donors/{donorId}": {
-      "schema": { "$ref": "#/entities/Donor" },
-      "description": "Stores food donor accounts, business details, and contribution metrics"
-    },
-    "/donations/{donationId}": {
-      "schema": { "$ref": "#/entities/FoodDonation" },
-      "description": "Stores live surplus food donations listed by donors for volunteers and admins"
-    },
-    "/food_donations/{donationId}": {
-      "schema": { "$ref": "#/entities/FoodDonation" },
-      "description": "Stores surplus food donations available for rescue"
-    },
-    "/locations/{locationId}": {
-      "schema": { "$ref": "#/entities/FoodDonation" },
-      "description": "Stores real-time volunteer and donor GPS coordinates for route navigation"
-    },
-    "/pickups/{pickupId}": {
-      "schema": { "$ref": "#/entities/Pickup" },
-      "description": "Stores pickup dispatch and handover tracking records"
-    },
-    "/notifications/{notificationId}": {
-      "schema": { "$ref": "#/entities/Notification" },
-      "description": "Stores notifications and dispatch alerts"
-    },
-    "/login_activity/{activityId}": {
-      "schema": { "$ref": "#/entities/LoginActivity" },
-      "description": "Stores login audit trail records"
-    },
-    "/contact_messages/{messageId}": {
-      "schema": { "$ref": "#/entities/ContactMessage" },
-      "description": "Stores inquiries and support messages"
-    },
-    "/profiles/{profileId}": {
-      "schema": { "$ref": "#/entities/Admin" },
-      "description": "Unified profile view connecting all user roles"
-    },
-    "/users/{userId}": {
-      "schema": { "$ref": "#/entities/Admin" },
-      "description": "User records synchronized across authentication"
-    },
-    "/certificates/{certificateId}": {
-      "schema": { "$ref": "#/entities/Pickup" },
-      "description": "Volunteer and donor recognition certificates"
-    }
-  }
+  ]
 }
